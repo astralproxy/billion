@@ -1,2 +1,3 @@
 # billion
-big boss
+
+play at: https://astralproxy.github.io/billion/
