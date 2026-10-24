@@ -2,6 +2,22 @@
  * BILLION - Game Engine with Day/Night Loop & Town System
  */
 
+// --- LAYOUT CONFIGURATION CONSTANTS ---
+const LAYOUT_CONFIG = {
+    headerHeight: '10vh',       // Tune header height here
+    headerExpandedHeight: '18vh', // Expanded header size
+    mainHeight: '62vh',         // Tune combat/town screen height here
+    // Inventory uses flex-1 to fill the rest automatically, 
+    // but min/max heights for expansion can be configured here:
+    invMinHeight: '160px',
+    invExpandedHeight: '85vh'   // Expanded inventory height to cover combat + spacing
+};
+
+// --- GAME CONSTANTS ---
+const MASS_MAX = 1000000000; // total monster mass
+//const DAY_LENGTH = 120; // in seconds (60 per minute)
+// DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
+
 let idCounter = 0;
 function generateUniqueId() {
     idCounter++;
@@ -10,8 +26,8 @@ function generateUniqueId() {
 
 // --- GAME STATE ---
 const gameState = {
-    mass: 1000000000,
-    maxMass: 1000000000,
+    mass: MASS_MAX,
+    maxMass: MASS_MAX,
     baseClickPower: 1,
     bonusClickPower: 0,
     passiveDPS: 0,
@@ -25,7 +41,8 @@ const gameState = {
     
     // DAY / NIGHT & TOWN MECHANICS
     dayNumber: 1,
-    timeRemaining: 300, // 5 minutes (300s)
+    dayLengthMinutes: 2, // Default 2 minutes
+    timeRemaining: 120,  // Initialized to 2 minutes in seconds
     isNight: false,
     mealBuffActive: false,
     mealBuffTimer: 0 // Duration in seconds
@@ -79,6 +96,14 @@ const PARASITIC_MESSAGES = {
 
 // --- INITIALIZATION ---
 window.onload = () => {
+    // Apply layout tuning constants
+    document.getElementById('app-header').style.height = LAYOUT_CONFIG.headerHeight;
+    document.getElementById('combat-screen').style.height = LAYOUT_CONFIG.mainHeight;
+    document.getElementById('town-screen').style.height = LAYOUT_CONFIG.mainHeight;
+
+    // Attach header click listener for expansion
+    document.getElementById('app-header').addEventListener('click', toggleHeaderExpand);
+
     loadGame(); // Load saved state before rendering
 
     renderMonster();
@@ -97,12 +122,8 @@ window.onload = () => {
     // Auto-save every 10 seconds
     setInterval(saveGame, 10000);
 
-    // Click Handler for Monster Arena & Attack Button
+    // Click Handler for Monster
     document.getElementById('arena').addEventListener('click', handleAttack);
-    document.getElementById('attack-btn').addEventListener('click', (e) => {
-        e.stopPropagation();
-        handleAttack(e);
-    });
 
     // Initialize Swipe Events for Inventory Expansion
     setupInventorySwipe();
@@ -139,6 +160,18 @@ function gameTick() {
     }
 }
 
+function updateDayLengthSetting(val) {
+    const mins = parseInt(val, 10);
+    gameState.dayLengthMinutes = mins;
+    document.getElementById('day-length-label').innerText = `${mins} Minute${mins > 1 ? 's' : ''}`;
+
+    const totalSecs = mins * 60;
+    if (gameState.timeRemaining > totalSecs) {
+        gameState.timeRemaining = totalSecs;
+    }
+    saveGame();
+}
+
 // --- TIME & DAY/NIGHT CYCLE LOGIC ---
 function updateTimeDisplay() {
     const timeIcon = document.getElementById('time-icon');
@@ -162,19 +195,26 @@ function updateTimeDisplay() {
 function triggerNightPhase() {
     gameState.isNight = true;
     document.getElementById('combat-screen').classList.add('hidden');
+    document.getElementById('combat-screen').classList.remove('flex');
     document.getElementById('town-screen').classList.remove('hidden');
     document.getElementById('town-screen').classList.add('flex');
-    
-    addLogEntry(`DUSK FALLS. Day ${gameState.dayNumber} combat has ended. You return to Town.`);
+
+    addLogEntry(`DUSK FALLS. Day ${gameState.dayNumber} has ended. Return to Town.`);
+
     updateTimeDisplay();
+    renderInventory();
     renderCraftingSlots();
 
     saveGame();
 }
 
-// --- TOWN SYSTEM TABS ---
+//#region --- TOWN SYSTEM TABS ---
+let activeTownTab = 'shop';
+
 function switchTownTab(tabName) {
     const tabs = ['shop', 'craft', 'eat', 'rest'];
+    activeTownTab = tabName; // <--- Track active tab
+
     tabs.forEach(tab => {
         const content = document.getElementById(`town-content-${tab}`);
         const button = document.getElementById(`town-tab-${tab}`);
@@ -189,12 +229,13 @@ function switchTownTab(tabName) {
     });
 
     if (tabName === 'craft') renderCraftingSlots();
+    renderInventory();
 }
 
 // --- SHOP LOGIC ---
 function renderShop() {
     const container = document.getElementById('shop-item-list');
-    document.getElementById('shop-gold').innerText = gameState.gold;
+    updateGoldUI();
     container.innerHTML = '';
 
     SHOP_ITEMS.forEach(item => {
@@ -371,7 +412,7 @@ function eatMeal(mealId) {
     gameState.mealBuffTimer = 3600; // 1 Hour real-time buff
     document.getElementById('meal-buff-indicator').classList.remove('hidden');
 
-    addLogEntry(`Ate [${meal.name}]! Gained +${meal.dpsBuff} Extra DPS for 1 Hour.`);
+    addLogEntry(`Ate [${meal.name}].\nGained +${meal.dpsBuff} extra DPS for 1 Hour.`);
     recalculateStats();
     renderShop();
 
@@ -387,15 +428,17 @@ function confirmRest() {
     setTimeout(() => {
         // Transition to Dawn
         gameState.dayNumber++;
-        gameState.timeRemaining = 300; // Reset 5 minutes combat timer
+        gameState.timeRemaining = gameState.dayLengthMinutes * 60;
         gameState.isNight = false;
 
         document.getElementById('town-screen').classList.add('hidden');
         document.getElementById('town-screen').classList.remove('flex');
         document.getElementById('combat-screen').classList.remove('hidden');
+        document.getElementById('combat-screen').classList.add('flex');
 
         updateTimeDisplay();
-        addLogEntry(`DAWN BREAKS. Day ${gameState.dayNumber} has begun. Strike the mass!`);
+        renderInventory();
+        addLogEntry(`DAWN BREAKS. Day ${gameState.dayNumber} has begun.`);
 
         setTimeout(() => {
             sleepOverlay.style.opacity = '0';
@@ -405,6 +448,7 @@ function confirmRest() {
 
     saveGame();
 }
+//#endregion
 
 // --- ATTACK & DAMAGE ---
 function handleAttack(e) {
@@ -494,25 +538,33 @@ function spawnLootDrop() {
 function animateEjectionTrajectory(groundItem) {
     const dropLayer = document.getElementById('drop-layer');
     const dropEl = document.createElement('div');
-    dropEl.className = 'ejecting-item text-amber-300 font-bold text-xl cursor-pointer select-none star-artifact';
+    // Exclude 'star-artifact' here so it doesn't conflict with trajectory positioning
+    dropEl.className = 'ejecting-item text-amber-300 font-bold text-xl cursor-pointer select-none';
     dropEl.innerText = '*';
 
-    // Scatter coordinates on terrain (percentages relative to arena)
-    const scatterLeft = 10 + Math.random() * 80; 
-    const scatterBottom = 10 + Math.random() * 35; // px from bottom
-
-    dropEl.style.left = `${scatterLeft}%`;
-    dropEl.style.bottom = `${scatterBottom}px`;
+    const startX = 35 + Math.random() * 30; // %
+    const startY = 30 + Math.random() * 20; // %
+    dropEl.style.left = `${startX}%`;
+    dropEl.style.top = `${startY}%`;
 
     dropLayer.appendChild(dropEl);
 
-    // Remove from temporary drop layer and add to permanent ground terrain after animation finishes (600ms)
+    const scatterLeft = 10 + Math.random() * 80; // %
+    const scatterBottom = 10 + Math.random() * 35; // px
+
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            dropEl.style.left = `${scatterLeft}%`;
+            dropEl.style.top = `80%`;
+        }, 20);
+    });
+
     setTimeout(() => {
         if (dropLayer.contains(dropEl)) {
             dropLayer.removeChild(dropEl);
         }
         addToGroundTerrain(groundItem, scatterLeft, scatterBottom);
-    }, 600);
+    }, 620);
 }
 
 function addToGroundTerrain(item, leftPct, bottomPx) {
@@ -529,7 +581,8 @@ function renderTerrainArtifacts() {
     gameState.groundItems.forEach(item => {
         const starDiv = document.createElement('div');
         starDiv.id = item.uniqueId;
-        starDiv.className = 'absolute text-amber-300 font-bold text-lg hover:scale-150 transition-transform star-artifact cursor-pointer p-1';
+        // Removed hover:scale-150 and transition-transform, handled by styles.css
+        starDiv.className = 'absolute text-amber-300 font-bold text-lg star-artifact p-1';
         starDiv.innerText = '*';
         starDiv.style.left = `${item.left}%`;
         starDiv.style.bottom = `${item.bottom}px`;
@@ -553,7 +606,7 @@ function collectGroundItem(uniqueId) {
     // Add Narrative log revealing full item name upon collection
     const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
     const msg = msgs[Math.floor(Math.random() * msgs.length)];
-    addLogEntry(`Picked up shiny drop (*). Revealed as [${item.name}]! ${msg}`);
+    addLogEntry(`${msg}\nPicked up (*) - [${item.name}]`);
 
     recalculateStats();
     renderInventory();
@@ -595,7 +648,7 @@ function updateLayerAndNarrative() {
     if (newLayer !== gameState.layer) {
         gameState.layer = newLayer;
         renderMonster();
-        addLogEntry(`STRUCTURAL BREAKDOWN: Monster degraded to ${MONSTER_LAYERS[newLayer - 1].name}!`);
+        addLogEntry(`STRUCTURAL BREAKDOWN! ${MONSTER_LAYERS[newLayer - 1].name}`);
     }
 
     if (massRatio < 0.75) gameState.assimilationStage = 1;
@@ -611,11 +664,20 @@ function renderMonster() {
     document.getElementById('layer-display').innerText = layerObj.name;
 }
 
+function updateGoldUI() {
+    const formattedGold = gameState.gold.toLocaleString();
+    const goldDisplay = document.getElementById('gold-display');
+    const shopGold = document.getElementById('shop-gold');
+
+    if (goldDisplay) goldDisplay.innerText = formattedGold;
+    if (shopGold) shopGold.innerText = formattedGold;
+}
+
 function updateStatsUI() {
     document.getElementById('mass-display').innerText = Math.floor(gameState.mass).toLocaleString();
     document.getElementById('dps-display').innerText = Math.floor(gameState.passiveDPS).toLocaleString();
     document.getElementById('click-display').innerText = Math.floor(gameState.baseClickPower + gameState.bonusClickPower).toLocaleString();
-    document.getElementById('gold-display').innerText = gameState.gold.toLocaleString();
+    updateGoldUI();
 }
 
 function renderInventory() {
@@ -642,7 +704,7 @@ function renderInventory() {
                     <div class="text-[9px] text-slate-500 italic truncate">${item.desc}</div>
                 </div>
             </div>
-            ${gameState.isNight ? `
+            ${gameState.isNight && activeTownTab === 'shop' ? `
                 <button onclick="sellItem('${item.uniqueId}')" class="px-2 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded shrink-0">
                     Sell (${item.value || 15}🪙)
                 </button>
@@ -650,6 +712,82 @@ function renderInventory() {
         `;
         container.appendChild(card);
     });
+}
+
+let isHeaderExpanded = false;
+function toggleHeaderExpand() {
+    isHeaderExpanded = !isHeaderExpanded;
+    const header = document.getElementById('app-header');
+    const menuBtnContainer = document.getElementById('header-menu-btn-container');
+
+    if (isHeaderExpanded) {
+        header.style.height = LAYOUT_CONFIG.headerExpandedHeight;
+        menuBtnContainer.classList.remove('hidden');
+    } else {
+        header.style.height = LAYOUT_CONFIG.headerHeight;
+        menuBtnContainer.classList.add('hidden');
+    }
+}
+
+function openGameMenu() {
+    document.getElementById('game-menu-overlay').classList.remove('hidden');
+}
+
+function closeGameMenu() {
+    document.getElementById('game-menu-overlay').classList.add('hidden');
+}
+
+function resetGameProgress() {
+    // Open our custom in-game confirmation modal instead of confirm()
+    document.getElementById('custom-confirm-modal').classList.remove('hidden');
+}
+
+function closeConfirmModal() {
+    document.getElementById('custom-confirm-modal').classList.add('hidden');
+}
+
+function executeGameReset() {
+
+    // Clear LocalStorage
+    localStorage.removeItem('billion_game_save');
+
+    // Reset gameState properties to defaults
+    gameState.mass = MASS_MAX;
+    gameState.maxMass = MASS_MAX;
+    gameState.baseClickPower = 1;
+    gameState.bonusClickPower = 0;
+    gameState.passiveDPS = 0;
+    gameState.gold = 50;
+    gameState.layer = 1;
+    gameState.totalHits = 0;
+    gameState.inventory = [];
+    gameState.groundItems = [];
+    gameState.milestonesReached.clear();
+    gameState.assimilationStage = 0;
+    gameState.dayNumber = 1;
+    gameState.dayLengthMinutes = 2;
+    gameState.timeRemaining = gameState.dayLengthMinutes * 60;
+    gameState.isNight = false;
+    gameState.mealBuffActive = false;
+    gameState.mealBuffTimer = 0;
+
+    // Reset UI states & close overlays/menus
+    closeGameMenu();
+    if (isHeaderExpanded) toggleHeaderExpand();
+    if (isInventoryExpanded) toggleExpandInventory();
+
+    // Ensure combat screen is visible and town screen is hidden
+    document.getElementById('town-screen').classList.add('hidden');
+    document.getElementById('town-screen').classList.remove('flex');
+    document.getElementById('combat-screen').classList.remove('hidden');
+    document.getElementById('combat-screen').classList.add('flex');
+    document.getElementById('meal-buff-indicator').classList.add('hidden');
+
+    // Clear log and add starting entry
+    document.getElementById('tab-log').innerHTML = '';
+
+    // Reload the page for a clean process restart
+    location.reload();
 }
 
 function addLogEntry(msg) {
@@ -666,15 +804,23 @@ function toggleExpandInventory() {
     const panel = document.getElementById('inventory-panel');
     const expandIcon = document.getElementById('expand-icon');
     const expandText = document.getElementById('expand-text');
+    const combatScreen = document.getElementById('combat-screen');
+    const townScreen = document.getElementById('town-screen');
 
     isInventoryExpanded = !isInventoryExpanded;
 
     if (isInventoryExpanded) {
-        panel.className = "h-3/4 flex flex-col bg-slate-900/95 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-2xl transition-all duration-300 relative z-30";
+        panel.className = "flex flex-col bg-slate-900/98 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-2xl transition-all duration-300 relative z-30 absolute inset-x-2 bottom-2 top-[12vh]";
+        panel.style.height = "auto";
+        combatScreen.classList.add('opacity-0', 'pointer-events-none');
+        townScreen.classList.add('opacity-0', 'pointer-events-none');
         expandIcon.innerText = "⤡";
         expandText.innerText = "Minimize";
     } else {
-        panel.className = "h-1/3 min-h-[160px] flex flex-col bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-lg transition-all duration-300 relative";
+        panel.className = "flex-1 min-h-0 flex flex-col bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-lg transition-all duration-300 relative";
+        panel.style.height = "";
+        combatScreen.classList.remove('opacity-0', 'pointer-events-none');
+        townScreen.classList.remove('opacity-0', 'pointer-events-none');
         expandIcon.innerText = "⤢";
         expandText.innerText = "Expand";
     }
@@ -704,19 +850,21 @@ function setupInventorySwipe() {
 
 // --- TAB SWITCHING (INVENTORY / LOG) ---
 function switchTab(tabName) {
-    const invTab = document.getElementById('tab-inventory');
+    const inventoryTab = document.getElementById('tab-inventory');
     const logTab = document.getElementById('tab-log');
     const invBtn = document.getElementById('tab-inv-btn');
     const logBtn = document.getElementById('tab-log-btn');
 
     if (tabName === 'inventory') {
-        invTab.classList.remove('hidden');
+        inventoryTab.classList.remove('hidden');
         logTab.classList.add('hidden');
         invBtn.className = 'py-2.5 px-3 font-bold text-sky-400 border-b-2 border-sky-400 transition-all';
         logBtn.className = 'py-2.5 px-3 font-bold text-slate-500 border-b-2 border-transparent transition-all';
+        renderInventory();
     } else {
-        invTab.classList.add('hidden');
+        inventoryTab.classList.add('hidden');
         logTab.classList.remove('hidden');
+        logTab.classList.add('flex', 'flex-col');
         logBtn.className = 'py-2.5 px-3 font-bold text-sky-400 border-b-2 border-sky-400 transition-all';
         invBtn.className = 'py-2.5 px-3 font-bold text-slate-500 border-b-2 border-transparent transition-all';
     }
@@ -743,6 +891,7 @@ function spawnFloatingDamage(text, x, y) {
 function saveGame() {
     const saveData = {
         dayNumber: gameState.dayNumber,
+        dayLengthMinutes: gameState.dayLengthMinutes,
         timeRemaining: gameState.timeRemaining,
         mass: gameState.mass,
         layer: gameState.layer,
@@ -763,6 +912,7 @@ function loadGame() {
     try {
         const data = JSON.parse(saved);
         gameState.dayNumber = data.dayNumber ?? gameState.dayNumber;
+        gameState.dayLengthMinutes = data.dayLengthMinutes ?? gameState.dayLengthMinutes;
         gameState.timeRemaining = data.timeRemaining ?? gameState.timeRemaining;
         gameState.mass = data.mass ?? gameState.mass;
         gameState.layer = data.layer ?? gameState.layer;
@@ -776,10 +926,24 @@ function loadGame() {
         // Restore screen state if loaded during night phase
         if (gameState.isNight) {
             document.getElementById('combat-screen').classList.add('hidden');
+            document.getElementById('combat-screen').classList.remove('flex');
             document.getElementById('town-screen').classList.remove('hidden');
             document.getElementById('town-screen').classList.add('flex');
+        } else {
+            document.getElementById('town-screen').classList.add('hidden');
+            document.getElementById('town-screen').classList.remove('flex');
+            document.getElementById('combat-screen').classList.remove('hidden');
+            document.getElementById('combat-screen').classList.add('flex');
         }
     } catch (e) {
         console.error("Failed to parse save data:", e);
+    }
+
+    renderInventory();
+
+    const slider = document.getElementById('day-length-slider');
+    if (slider) {
+        slider.value = gameState.dayLengthMinutes;
+        document.getElementById('day-length-label').innerText = `${gameState.dayLengthMinutes} Minute${gameState.dayLengthMinutes > 1 ? 's' : ''}`;
     }
 }
