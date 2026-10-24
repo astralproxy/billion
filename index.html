@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Billion - Deconstruct the Mass</title>
+    <title>billion</title>
 
     <link rel="stylesheet" href="./dist/output.css"> <!-- Tailwind compiled output -->
     <link rel="stylesheet" href="./styles.css"> <!-- custom styles -->
@@ -21,22 +21,26 @@
         <!-- HEADER STATS & DAY/NIGHT TIMER -->
          <header id="app-header" class="flex flex-col justify-between bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 shadow-md shrink-0 cursor-pointer transition-all duration-300 relative overflow-hidden">
             <div class="flex justify-between items-center w-full">
-            <!-- LEFT SIDE STATS -->
-            <div>
-                <div class="flex items-center gap-2">
-                    <span id="time-icon" class="text-base">☀️</span>
-                    <span id="time-display" class="text-xs font-bold text-amber-400 font-mono tracking-wider">DAY 1 - 05:00</span>
+                <!-- LEFT SIDE STATS -->
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span id="time-icon" class="text-base">☀️</span>
+                        <span id="time-display" class="text-xs font-bold text-amber-400 font-mono tracking-wider">DAY 1 - 05:00</span>
+                    </div>
+                    <div id="mass-display" class="text-base sm:text-xl font-bold text-sky-400 tracking-tight">1,000,000,000</div>
+                    <div class="text-[9px] text-slate-500" id="layer-display">Layer 0</div>
                 </div>
-                <div id="mass-display" class="text-base sm:text-xl font-bold text-sky-400 tracking-tight">1,000,000,000</div>
-                <div class="text-[9px] text-slate-500" id="layer-display">Layer 0</div>
+                <!-- RIGHT SIDE STATS -->
+                <div class="text-right">
+                    <div class="text-xs text-amber-400 font-bold">🪙 <span id="gold-display">0</span> Gold</div>
+                    <div class="text-xs text-slate-400">DPS: <span id="dps-display" class="text-emerald-400 font-semibold">0</span> <span id="meal-buff-indicator" class="text-[9px] text-amber-300 hidden">(+1 Meal)</span></div>
+                    <div class="text-xs text-slate-400">Click: <span id="click-display" class="text-amber-400 font-semibold">1</span></div>
+                </div>
             </div>
-            <!-- RIGHT SIDE STATS -->
-            <div class="text-right">
-                <div class="text-xs text-amber-400 font-bold">🪙 <span id="gold-display">0</span> Gold</div>
-                <div class="text-xs text-slate-400">DPS: <span id="dps-display" class="text-emerald-400 font-semibold">0</span> <span id="meal-buff-indicator" class="text-[9px] text-amber-300 hidden">(+1 Meal)</span></div>
-                <div class="text-xs text-slate-400">Click: <span id="click-display" class="text-amber-400 font-semibold">1</span></div>
+            <!-- Total Game Timer (Shown when Header Expanded) -->
+            <div id="header-timer-container" class="hidden flex items-center justify-center w-full mt-auto pt-1">
+                <div class="text-[11px] font-mono text-slate-400">Total Time: <span id="total-game-time" class="text-amber-400 font-bold">00:00</span></div>
             </div>
-        </div>
             <!-- Center-Bottom Menu Button Container (Shown when Header Expanded) -->
             <div id="header-menu-btn-container" class="hidden flex items-center justify-center w-full mt-auto pt-1">
                 <button onclick="event.stopPropagation(); openGameMenu();" class="px-4 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 font-bold text-xs rounded shadow transition-colors">
@@ -48,8 +52,7 @@
         <!-- COMBAT SCREEN (ACTIVE DURING DAY) -->
         <div id="combat-screen" class="flex-col shrink-0 gap-2 min-h-0">
             <!-- MONSTER ARENA -->
-            <section id="arena" class="relative flex-1 flex flex-col justify-center items-center bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">
-                
+            <section id="arena" class="relative h-full flex flex-col justify-center items-center bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">    
                 <!-- Floating Event / Shockwave Notice -->
                 <div id="shockwave-banner" class="absolute top-2 inset-x-0 text-center text-[10px] font-bold text-amber-400 tracking-widest opacity-0 transition-opacity pointer-events-none uppercase z-20">
                     ⚡ Structural Shockwave! Items Dislodged! ⚡
@@ -105,9 +108,9 @@
             <div class="flex-1 p-3 overflow-y-auto">
                 <!-- SHOP TAB -->
                 <div id="town-content-shop" class="space-y-3">
-                    <div class="text-xs text-slate-400 border-b border-slate-800 pb-2 flex justify-between items-center">
+                    <div class="text-xs text-slate-400 border-b border-slate-800 pb-2">
                         <span>Merchant's Bazaar</span>
-                        <span class="text-amber-400 font-bold">Gold: <span id="shop-gold">0</span>🪙</span>
+                        <p class="text-[10px] text-slate-500 mt-0.5">Sell items for gold, and buy items to gain power.</p>
                     </div>
                     <div id="shop-item-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <!-- Shop Items Populated by JS -->
@@ -117,8 +120,8 @@
                 <!-- CRAFT TAB -->
                 <div id="town-content-craft" class="hidden space-y-3">
                     <div class="text-xs text-slate-400 border-b border-slate-800 pb-2">
-                        <span>Smelt & Combine Duplicates</span>
-                        <p class="text-[10px] text-slate-500 mt-0.5">Combine two identical duplicate items to forge a upgraded, higher-tier artifact.</p>
+                        <span>Crafting Station</span>
+                        <p class="text-[10px] text-slate-500 mt-0.5">Combine duplicate items to forge an upgraded artifact.</p>
                     </div>
                     <div id="craft-slots" class="grid grid-cols-1 gap-2">
                         <!-- Crafting combinations populated by JS -->
@@ -129,7 +132,7 @@
                 <div id="town-content-eat" class="hidden space-y-3">
                     <div class="text-xs text-slate-400 border-b border-slate-800 pb-2">
                         <span>Tavern Feast</span>
-                        <p class="text-[10px] text-slate-500 mt-0.5">Eat a hearty meal before combat to gain temporary daily stat buffs.</p>
+                        <p class="text-[10px] text-slate-500 mt-0.5">Eat a hearty meal to gain temporary stat buffs.</p>
                     </div>
                     <div id="meal-list" class="grid grid-cols-1 gap-2">
                         <!-- Meals populated by JS -->
@@ -170,7 +173,7 @@
             </div>
 
             <!-- Tab Content: Inventory -->
-            <div id="tab-inventory" class="flex-1 min-h-0 p-2 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div id="tab-inventory" class="flex-1 min-h-0 p-2 overflow-y-auto flex flex-col gap-0">
                 <!-- Inventory Items rendered dynamically -->
             </div>
 

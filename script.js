@@ -15,6 +15,7 @@ const LAYOUT_CONFIG = {
 
 // --- GAME CONSTANTS ---
 const MASS_MAX = 1000000000; // total monster mass
+const MEAL_BUFF_DURATION = 60; // 1 game hour, in seconds
 //const DAY_LENGTH = 120; // in seconds (60 per minute)
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
 
@@ -35,17 +36,19 @@ const gameState = {
     layer: 1,
     totalHits: 0,
     inventory: [],     // Items in bag
-    groundItems: [],   // Scattered '*' artifact drops on terrain { uniqueId, itemData, left, bottom }
+    groundItems: [],   // Scattered '*' artifact drops on terrain 
     milestonesReached: new Set(),
     assimilationStage: 0,
     
     // DAY / NIGHT & TOWN MECHANICS
     dayNumber: 1,
+    totalGameTime: 0, // in seconds
     dayLengthMinutes: 2, // Default 2 minutes
     timeRemaining: 120,  // Initialized to 2 minutes in seconds
     isNight: false,
     mealBuffActive: false,
-    mealBuffTimer: 0 // Duration in seconds
+    mealBuffTimer: 0, // Duration in seconds
+    mealBuffValue: 0  // Stores the active meal's dpsBuff value
 };
 
 // --- ITEM DATABASE ---
@@ -132,10 +135,36 @@ window.onload = () => {
 };
 
 // --- GAME TICK (10 TICKS / SEC) ---
+function updateTotalGameTimeDisplay() {
+    const timerEl = document.getElementById('total-game-time');
+    if (!timerEl) return;
+
+    const totalSecs = Math.floor(gameState.totalGameTime);
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+
+    if (hrs > 0) {
+        timerEl.innerText = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    } else {
+        timerEl.innerText = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+}
+
+let lastTickTime = Date.now();
 function gameTick() {
-    // 1. DAY/NIGHT TIMER MANAGEMENT
+    const now = Date.now();
+    const delta = (now - lastTickTime) / 1000;
+    lastTickTime = now;
+    if (delta <= 0) return;
+
+    // Increment total game time every tick (10 ticks per second = 0.1s)
+    gameState.totalGameTime += delta;
+    updateTotalGameTimeDisplay();
+
+    // DAY/NIGHT TIMER MANAGEMENT
     if (!gameState.isNight) {
-        gameState.timeRemaining -= 0.1;
+        gameState.timeRemaining -= delta;
         if (gameState.timeRemaining <= 0) {
             gameState.timeRemaining = 0;
             triggerNightPhase();
@@ -143,9 +172,9 @@ function gameTick() {
         updateTimeDisplay();
     }
 
-    // 2. MEAL BUFF TIMER TICK
+    // MEAL BUFF TIMER TICK
     if (gameState.mealBuffActive && gameState.mealBuffTimer > 0) {
-        gameState.mealBuffTimer -= 0.1;
+        gameState.mealBuffTimer = Math.max(0, gameState.mealBuffTimer - delta);
         if (gameState.mealBuffTimer <= 0) {
             gameState.mealBuffActive = false;
             addLogEntry("Your meal buff has worn off.");
@@ -153,9 +182,9 @@ function gameTick() {
         }
     }
 
-    // 3. PASSIVE COMBAT DPS
+    // PASSIVE COMBAT DPS
     if (!gameState.isNight && gameState.passiveDPS > 0) {
-        const damagePerTick = gameState.passiveDPS / 10;
+        const damagePerTick = gameState.passiveDPS * delta;
         applyDamage(damagePerTick, false);
     }
 }
@@ -194,12 +223,21 @@ function updateTimeDisplay() {
 
 function triggerNightPhase() {
     gameState.isNight = true;
+
+    // Discard all unclaimed ground artifacts so they don't persist to the next day
+    gameState.groundItems = [];
+    renderTerrainArtifacts();
+    
     document.getElementById('combat-screen').classList.add('hidden');
     document.getElementById('combat-screen').classList.remove('flex');
     document.getElementById('town-screen').classList.remove('hidden');
     document.getElementById('town-screen').classList.add('flex');
 
     addLogEntry(`DUSK FALLS. Day ${gameState.dayNumber} has ended. Return to Town.`);
+
+    // Force Shop to be the starting tab
+    switchTownTab('shop');
+    renderShop();
 
     updateTimeDisplay();
     renderInventory();
@@ -264,7 +302,7 @@ function buyShopItem(itemId) {
     }
 
     gameState.gold -= item.price;
-    gameState.inventory.push({
+    addItemToInventory({
         uniqueId: generateUniqueId(),
         typeId: item.id,
         name: item.name,
@@ -292,7 +330,14 @@ function sellItem(uniqueId) {
     const sellPrice = item.value || 15;
     gameState.gold += sellPrice;
 
-    addLogEntry(`Sold [${item.name}] for ${sellPrice} Gold.`);
+    if (item.quantity && item.quantity > 1) {
+        item.quantity--;
+        addLogEntry(`Sold 1x [${item.name}] for ${sellPrice} Gold.`);
+    } else {
+        gameState.inventory.splice(index, 1);
+        addLogEntry(`Sold [${item.name}] for ${sellPrice} Gold.`);
+    }
+
     recalculateStats();
     renderShop();
     renderInventory();
@@ -303,38 +348,29 @@ function sellItem(uniqueId) {
 
 // --- CRAFTING LOGIC ---
 function renderCraftingSlots() {
-    const container = document.getElementById('town-content-craft');
     const slotArea = document.getElementById('craft-slots');
     slotArea.innerHTML = '';
 
-    // Group duplicates in inventory by typeId
-    const counts = {};
-    gameState.inventory.forEach(item => {
-        counts[item.typeId] = (counts[item.typeId] || 0) + 1;
-    });
+    const stackableItems = gameState.inventory.filter(item => (item.quantity || 1) >= 2);
 
-    const duplicates = Object.keys(counts).filter(typeId => counts[typeId] >= 2);
-
-    if (duplicates.length === 0) {
-        slotArea.innerHTML = `<div class="text-xs text-slate-600 text-center py-6 italic">No duplicate gear available to fuse. Collect more items during the day!</div>`;
+    if (stackableItems.length === 0) {
+        slotArea.innerHTML = `<div class="text-xs text-slate-600 text-center py-6 italic">No duplicate gear available to fuse.<br>Collect more items during the day!</div>`;
         return;
     }
 
-    duplicates.forEach(typeId => {
-        const sampleItem = gameState.inventory.find(i => i.typeId === typeId);
-        const count = counts[typeId];
-
+    stackableItems.forEach(item => {
+        const count = item.quantity;
         const card = document.createElement('div');
         card.className = 'bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex items-center justify-between';
         card.innerHTML = `
             <div class="flex items-center gap-2">
-                <span class="text-xl">${sampleItem.symbol}</span>
+                <span class="text-xl">${item.symbol}</span>
                 <div>
-                    <div class="text-xs font-bold text-slate-200">${sampleItem.name} <span class="text-amber-400 font-mono">(x${count})</span></div>
+                    <div class="text-xs font-bold text-slate-200">${item.name} <span class="text-amber-400 font-mono">(x${count})</span></div>
                     <div class="text-[10px] text-slate-400">Combine 2 into an Upgraded +50% Powered version.</div>
                 </div>
             </div>
-            <button onclick="craftCombine('${typeId}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded transition-colors shrink-0">
+            <button onclick="craftCombine('${item.uniqueId}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded transition-colors shrink-0">
                 Smelt 2x
             </button>
         `;
@@ -342,34 +378,30 @@ function renderCraftingSlots() {
     });
 }
 
-function craftCombine(typeId) {
-    // Find two instances of typeId
-    const matchingIndices = [];
-    gameState.inventory.forEach((item, index) => {
-        if (item.typeId === typeId) matchingIndices.push(index);
-    });
+function craftCombine(uniqueId) {
+    const item = gameState.inventory.find(i => i.uniqueId === uniqueId);
+    if (!item || (item.quantity || 1) < 2) return;
 
-    if (matchingIndices.length < 2) return;
+    item.quantity -= 2;
+    if (item.quantity <= 0) {
+        const index = gameState.inventory.findIndex(i => i.uniqueId === uniqueId);
+        gameState.inventory.splice(index, 1);
+    }
 
-    // Remove the two items (back to front)
-    const item1 = gameState.inventory.splice(matchingIndices[1], 1)[0];
-    const item2 = gameState.inventory.splice(matchingIndices[0], 1)[0];
-
-    // Create Fused Upgraded Version
     const fusedItem = {
         uniqueId: generateUniqueId(),
-        typeId: `${typeId}_fused`,
-        name: `Forged ${item1.name}`,
-        symbol: item1.symbol,
-        clickBonus: Math.round(item1.clickBonus * 1.6) + 5,
-        dpsBonus: Math.round(item1.dpsBonus * 1.6) + 5,
-        value: Math.round((item1.value || 20) * 2.2),
+        typeId: `${item.typeId}_fused`,
+        name: `Forged ${item.name}`,
+        symbol: item.symbol,
+        clickBonus: Math.round(item.clickBonus * 1.6) + 5,
+        dpsBonus: Math.round(item.dpsBonus * 1.6) + 5,
+        value: Math.round((item.value || 20) * 2.2),
         rarity: 'Forged',
-        desc: `Smelted at the town forge. Power vastly amplified.`
+        desc: `Smelted at the town forge. Power amplified.`
     };
 
-    gameState.inventory.push(fusedItem);
-    addLogEntry(`SMELTED 2x [${item1.name}] into [${fusedItem.name}]!`);
+    addItemToInventory(fusedItem);
+    addLogEntry(`SMELTED 2x [${item.name}] into [${fusedItem.name}]!`);
     recalculateStats();
     renderCraftingSlots();
     renderInventory();
@@ -403,13 +435,14 @@ function eatMeal(mealId) {
     if (!meal) return;
 
     if (gameState.gold < meal.price) {
-        addLogEntry("Not enough gold to purchase a meal!");
+        addLogEntry("Not enough gold to purchase a meal.");
         return;
     }
 
     gameState.gold -= meal.price;
     gameState.mealBuffActive = true;
-    gameState.mealBuffTimer = 3600; // 1 Hour real-time buff
+    gameState.mealBuffTimer = MEAL_BUFF_DURATION;
+    gameState.mealBuffValue = meal.dpsBuff;
     document.getElementById('meal-buff-indicator').classList.remove('hidden');
 
     addLogEntry(`Ate [${meal.name}].\nGained +${meal.dpsBuff} extra DPS for 1 Hour.`);
@@ -601,7 +634,7 @@ function collectGroundItem(uniqueId) {
     if (itemIndex === -1) return;
 
     const item = gameState.groundItems.splice(itemIndex, 1)[0];
-    gameState.inventory.push(item);
+    addItemToInventory(item);
 
     // Add Narrative log revealing full item name upon collection
     const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
@@ -615,6 +648,16 @@ function collectGroundItem(uniqueId) {
     saveGame();
 }
 
+function addItemToInventory(newItem) {
+    const existingItem = gameState.inventory.find(i => i.name === newItem.name);
+    if (existingItem) {
+        existingItem.quantity = (existingItem.quantity || 1) + 1;
+    } else {
+        newItem.quantity = newItem.quantity || 1;
+        gameState.inventory.push(newItem);
+    }
+}
+
 // --- STATS RECALCULATION ---
 function recalculateStats() {
     let bonusClick = 0;
@@ -626,13 +669,14 @@ function recalculateStats() {
     });
 
     if (gameState.mealBuffActive) {
-        passiveDPS += 1;
+        passiveDPS += gameState.mealBuffValue || 1; // use value if set
     }
 
     gameState.bonusClickPower = bonusClick;
     gameState.passiveDPS = passiveDPS;
 
-    document.getElementById('inv-count').innerText = gameState.inventory.length;
+    const totalCount = gameState.inventory.reduce((sum, item) => sum + (item.quantity || 1), 0);
+    document.getElementById('inv-count').innerText = totalCount;
 }
 
 // --- LAYER & PARASITIC NARRATIVE SHIFT ---
@@ -685,18 +729,20 @@ function renderInventory() {
     container.innerHTML = '';
 
     if (gameState.inventory.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center text-xs text-slate-600 py-6">Your bag is empty. Collect scattered (*) drops during combat!</div>`;
+        container.innerHTML = `<div class="col-span-full text-center text-xs text-slate-600 py-6">Your bag is empty.\nCollect scattered (*) drops during combat.</div>`;
         return;
     }
 
     gameState.inventory.forEach((item) => {
+        const qty = item.quantity || 1;
+        const displayName = qty > 1 ? `${item.name} (x${qty})` : item.name;
         const card = document.createElement('div');
         card.className = 'bg-slate-950 border border-slate-800 p-2 rounded-lg flex items-start justify-between gap-2 shadow-sm';
         card.innerHTML = `
             <div class="flex items-start gap-2 min-w-0">
                 <div class="text-xl p-1.5 bg-slate-900 rounded border border-slate-800 shrink-0">${item.symbol}</div>
                 <div class="min-w-0">
-                    <div class="text-xs font-bold text-slate-200 truncate">${item.name}</div>
+                    <div class="text-xs font-bold text-slate-200 truncate">${displayName}</div>
                     <div class="text-[10px] text-emerald-400 font-medium">
                         ${item.dpsBonus > 0 ? `+${item.dpsBonus} DPS` : ''} 
                         ${item.clickBonus > 0 ? `+${item.clickBonus} Click` : ''}
@@ -718,13 +764,17 @@ let isHeaderExpanded = false;
 function toggleHeaderExpand() {
     isHeaderExpanded = !isHeaderExpanded;
     const header = document.getElementById('app-header');
+    const timerContainer = document.getElementById('header-timer-container');
     const menuBtnContainer = document.getElementById('header-menu-btn-container');
 
     if (isHeaderExpanded) {
         header.style.height = LAYOUT_CONFIG.headerExpandedHeight;
+        timerContainer.classList.remove('hidden');
         menuBtnContainer.classList.remove('hidden');
+        updateTotalGameTimeDisplay();
     } else {
         header.style.height = LAYOUT_CONFIG.headerHeight;
+        timerContainer.classList.add('hidden');
         menuBtnContainer.classList.add('hidden');
     }
 }
@@ -765,11 +815,13 @@ function executeGameReset() {
     gameState.milestonesReached.clear();
     gameState.assimilationStage = 0;
     gameState.dayNumber = 1;
+    gameState.totalGameTime = 0;
     gameState.dayLengthMinutes = 2;
     gameState.timeRemaining = gameState.dayLengthMinutes * 60;
     gameState.isNight = false;
     gameState.mealBuffActive = false;
     gameState.mealBuffTimer = 0;
+    gameState.mealBuffValue = 0;
 
     // Reset UI states & close overlays/menus
     closeGameMenu();
@@ -810,17 +862,24 @@ function toggleExpandInventory() {
     isInventoryExpanded = !isInventoryExpanded;
 
     if (isInventoryExpanded) {
-        panel.className = "flex flex-col bg-slate-900/98 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-2xl transition-all duration-300 relative z-30 absolute inset-x-2 bottom-2 top-[12vh]";
-        panel.style.height = "auto";
-        combatScreen.classList.add('opacity-0', 'pointer-events-none');
-        townScreen.classList.add('opacity-0', 'pointer-events-none');
+        // Hide combat and town screens so inventory takes up all remaining vertical space via flex-1
+        combatScreen.classList.add('hidden');
+        combatScreen.classList.remove('flex');
+        townScreen.classList.add('hidden');
+        townScreen.classList.remove('flex');
+
         expandIcon.innerText = "⤡";
         expandText.innerText = "Minimize";
     } else {
-        panel.className = "flex-1 min-h-0 flex flex-col bg-slate-900/90 border border-slate-800 rounded-xl overflow-hidden shrink-0 shadow-lg transition-all duration-300 relative";
-        panel.style.height = "";
-        combatScreen.classList.remove('opacity-0', 'pointer-events-none');
-        townScreen.classList.remove('opacity-0', 'pointer-events-none');
+        // Restore active screen based on day/night state
+        if (gameState.isNight) {
+            townScreen.classList.remove('hidden');
+            townScreen.classList.add('flex');
+        } else {
+            combatScreen.classList.remove('hidden');
+            combatScreen.classList.add('flex');
+        }
+
         expandIcon.innerText = "⤢";
         expandText.innerText = "Expand";
     }
@@ -890,7 +949,8 @@ function spawnFloatingDamage(text, x, y) {
 // --- LOCAL STORAGE SAVE & LOAD ---
 function saveGame() {
     const saveData = {
-        dayNumber: gameState.dayNumber,
+        timestamp: Date.now(),dayNumber: gameState.dayNumber,
+        totalGameTime: gameState.totalGameTime,
         dayLengthMinutes: gameState.dayLengthMinutes,
         timeRemaining: gameState.timeRemaining,
         mass: gameState.mass,
@@ -900,7 +960,8 @@ function saveGame() {
         groundItems: gameState.groundItems, // <--- Persist ground items
         isNight: gameState.isNight,
         mealBuffActive: gameState.mealBuffActive,
-        mealBuffTimer: gameState.mealBuffTimer
+        mealBuffTimer: gameState.mealBuffTimer,
+        mealBuffValue: gameState.mealBuffValue
     };
     localStorage.setItem('billion_game_save', JSON.stringify(saveData));
 }
@@ -917,18 +978,46 @@ function loadGame() {
         gameState.mass = data.mass ?? gameState.mass;
         gameState.layer = data.layer ?? gameState.layer;
         gameState.gold = data.gold ?? gameState.gold;
-        gameState.inventory = data.inventory ?? gameState.inventory;
-        gameState.groundItems = data.groundItems ?? gameState.groundItems; // <--- Load ground items
+        gameState.inventory = (data.inventory || []).map(item => ({
+            ...item,
+            quantity: item.quantity ?? 1
+        }));
+        gameState.groundItems = data.groundItems ?? gameState.groundItems;
         gameState.isNight = data.isNight ?? gameState.isNight;
         gameState.mealBuffActive = data.mealBuffActive ?? gameState.mealBuffActive;
         gameState.mealBuffTimer = data.mealBuffTimer ?? gameState.mealBuffTimer;
+        gameState.mealBuffValue = data.mealBuffValue ?? gameState.mealBuffValue;
+        gameState.totalGameTime = data.totalGameTime ?? gameState.totalGameTime;
 
-        // Restore screen state if loaded during night phase
+        // Simulate elapsed time if it was daytime when last saved/blurred
+        if (!gameState.isNight && data.timestamp) {
+            const elapsedSeconds = (Date.now() - data.timestamp) / 1000;
+            if (elapsedSeconds > 0) {
+                gameState.totalGameTime += elapsedSeconds;
+                gameState.timeRemaining -= elapsedSeconds;
+
+                if (gameState.mealBuffActive) {
+                    gameState.mealBuffTimer = Math.max(0, gameState.mealBuffTimer - elapsedSeconds);
+                    if (gameState.mealBuffTimer <= 0) {
+                        gameState.mealBuffActive = false;
+                    }
+                }
+
+                if (gameState.timeRemaining <= 0) {
+                    gameState.timeRemaining = 0;
+                    gameState.isNight = true;
+                    gameState.groundItems = []; // Discard unclaimed ground items when entering night
+                }
+            }
+        }
+
+        // Restore screen state
         if (gameState.isNight) {
             document.getElementById('combat-screen').classList.add('hidden');
             document.getElementById('combat-screen').classList.remove('flex');
             document.getElementById('town-screen').classList.remove('hidden');
             document.getElementById('town-screen').classList.add('flex');
+            switchTownTab('shop');
         } else {
             document.getElementById('town-screen').classList.add('hidden');
             document.getElementById('town-screen').classList.remove('flex');
@@ -940,6 +1029,7 @@ function loadGame() {
     }
 
     renderInventory();
+    renderTerrainArtifacts();
 
     const slider = document.getElementById('day-length-slider');
     if (slider) {
