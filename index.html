@@ -24,15 +24,19 @@
                 <!-- LEFT SIDE STATS -->
                 <div>
                     <div class="flex items-center gap-2">
-                        <span id="time-icon" class="text-base">☀️</span>
-                        <span id="time-display" class="text-xs font-bold text-amber-400 font-mono tracking-wider">DAY 1 - 05:00</span>
+                        <!-- Day/night icon: ☀️/🌙 -->
+                        <span id="time-icon" class="text-base"></span>
+                        <!-- DAY 1 - 05:00 -->
+                        <span id="time-display" class="text-xs font-bold text-amber-400 font-mono tracking-wider"></span>
                     </div>
-                    <div id="mass-display" class="text-base sm:text-xl font-bold text-sky-400 tracking-tight">1,000,000,000</div>
-                    <div class="text-[9px] text-slate-500" id="layer-display">Layer 0</div>
+                    <!-- 1,000,000,000 -->
+                    <div id="mass-display" class="text-base sm:text-xl font-bold text-sky-400 tracking-tight hidden"></div>
+                    <!-- Layer 0 -->
+                    <div class="text-[9px] text-slate-500" id="layer-display"></div>
                 </div>
                 <!-- RIGHT SIDE STATS -->
                 <div class="text-right">
-                    <div class="text-xs text-amber-400 font-bold">🪙 <span id="gold-display">0</span> Gold</div>
+                    <div class="text-xs text-amber-400 font-bold">🪙 <span id="gold-display">0</span></div>
                     <div class="text-xs text-slate-400">DPS: <span id="dps-display" class="text-red-400 font-semibold">0</span> <span id="meal-buff-indicator" class="text-[9px] text-amber-300 hidden">(+1 Meal)</span></div>
                     <div class="text-xs text-slate-400">Click: <span id="click-display" class="text-red-400 font-semibold">1</span></div>
                 </div>
@@ -203,6 +207,7 @@
                     <span>1m</span><span>2m</span><span>3m</span><span>4m</span><span>5m</span>
                 </div>
             </div>
+            <br><hr><br>
             <button onclick="resetGameProgress()" class="w-full py-2.5 bg-red-600/20 border border-red-500/50 hover:bg-red-600 text-red-300 hover:text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
                 <span>⚠️</span> RESET PROGRESS (NEW GAME)
             </button>
@@ -231,8 +236,7 @@
     </div>
 
     <!-- GAME LOGIC SCRIPT -->
-     <script src="./monster.js" defer></script>
-     <script src="./items.js" defer></script>
-     <script src="./script.js" defer></script>
+     <script src="./src/monster.js" defer></script>
+     <script type="module" src="./src/script.js"></script>
 </body>
 </html>

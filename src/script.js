@@ -2,6 +2,13 @@
  * BILLION - Game Engine with Day/Night Loop & Town System
  */
 
+import { DEBUG_ENABLED, SHEET_CSV_URLS } from "./config.js";
+import { loadGameContent } from "./content.js";
+
+let ITEM_DATABASE = [];
+let SHOP_ITEMS = [];
+let MEALS = [];
+
 // --- LAYOUT CONFIGURATION CONSTANTS ---
 const LAYOUT_CONFIG = {
     headerHeight: '10vh',       // Tune header height here
@@ -76,19 +83,34 @@ const PARASITIC_MESSAGES = {
 };
 
 // --- INITIALIZATION ---
-window.onload = () => {
-    // Apply layout tuning constants
+window.onload = async () => {
     document.getElementById('app-header').style.height = LAYOUT_CONFIG.headerHeight;
     document.getElementById('combat-screen').style.height = LAYOUT_CONFIG.mainHeight;
     document.getElementById('town-screen').style.height = LAYOUT_CONFIG.mainHeight;
 
-    // Attach header click listener for expansion
+    // Hide mass-display if debugging is disabled
+    if (!DEBUG_ENABLED) {
+        const massDisplay = document.getElementById('mass-display');
+        if (massDisplay) massDisplay.classList.add('hidden');
+    }
+
     document.getElementById('app-header').addEventListener('click', toggleHeaderExpand);
 
-    loadGame(); // Load saved state before rendering
+    try {
+        // Load content dynamically from Google Sheets CSVs
+        const content = await loadGameContent(SHEET_CSV_URLS);
+        ITEM_DATABASE = content.artifacts;
+        SHOP_ITEMS = content.shop;
+        MEALS = content.meals;
+    } catch (error) {
+        console.error("Failed to load game content from sheets:", error);
+        addLogEntry("Error loading game data from Google Sheets.");
+    }
+
+    loadGame();
 
     renderMonster();
-    recalculateStats(); // Recalculate DPS/Click power from saved inventory
+    recalculateStats(); 
     updateStatsUI();
     updateTimeDisplay();
     renderTerrainArtifacts();
@@ -97,16 +119,11 @@ window.onload = () => {
         addLogEntry("You stand before the massive anomaly.");
     }
     
-    // Loop: 10 Ticks per second
     setInterval(gameTick, 100);
-
-    // Auto-save every 10 seconds
     setInterval(saveGame, 10000);
 
-    // Click Handler for Monster
     document.getElementById('arena').addEventListener('click', handleAttack);
 
-    // Initialize Swipe Events for Inventory Expansion
     setupInventorySwipe();
     renderShop();
     renderMeals();
@@ -304,8 +321,8 @@ function sellItem(uniqueId) {
     const index = gameState.inventory.findIndex(i => i.uniqueId === uniqueId);
     if (index === -1) return;
 
-    const item = gameState.inventory.splice(index, 1)[0];
-    const sellPrice = item.value || 15;
+    const item = gameState.inventory[index];
+    const sellPrice = item.value || 1;
     gameState.gold += sellPrice;
 
     if (item.quantity && item.quantity > 1) {
@@ -528,8 +545,12 @@ function triggerStructuralShockwave() {
 }
 
 function spawnLootDrop() {
+    // Wait until CSV is loaded
+    if (!ITEM_DATABASE || ITEM_DATABASE.length === 0) return;
+
     const availableItems = ITEM_DATABASE.slice(0, Math.min(ITEM_DATABASE.length, gameState.layer + 1));
     const itemTemplate = availableItems[Math.floor(Math.random() * availableItems.length)];
+    if (!itemTemplate) return;
 
     const uniqueGroundItem = {
         uniqueId: generateUniqueId(),
@@ -696,7 +717,13 @@ function updateGoldUI() {
 }
 
 function updateStatsUI() {
-    document.getElementById('mass-display').innerText = Math.floor(gameState.mass).toLocaleString();
+    const massDisplay = document.getElementById('mass-display');
+    // Hide mass display if debugging is disabled
+    if (massDisplay) {
+        massDisplay.classList.toggle('hidden', !DEBUG_ENABLED);
+        massDisplay.innerText = Math.floor(gameState.mass).toLocaleString();
+    }
+
     document.getElementById('dps-display').innerText = Math.floor(gameState.passiveDPS).toLocaleString();
     document.getElementById('click-display').innerText = Math.floor(gameState.baseClickPower + gameState.bonusClickPower).toLocaleString();
     updateGoldUI();
@@ -710,6 +737,18 @@ function renderInventory() {
         container.innerHTML = `<div class="col-span-full text-center text-xs text-slate-600 py-6">Your bag is empty.\nCollect scattered (*) drops during combat.</div>`;
         return;
     }
+
+    // Sort inventory: DPS descending, then Click power descending
+    gameState.inventory.sort((a, b) => {
+        const dpsA = a.dpsBonus || 0;
+        const dpsB = b.dpsBonus || 0;
+        if (dpsB !== dpsA) {
+            return dpsB - dpsA;
+        }
+        const clickA = a.clickBonus || 0;
+        const clickB = b.clickBonus || 0;
+        return clickB - clickA;
+    });
 
     gameState.inventory.forEach((item) => {
         const qty = item.quantity || 1;
@@ -1015,3 +1054,20 @@ function loadGame() {
         document.getElementById('day-length-label').innerText = `${gameState.dayLengthMinutes} Minute${gameState.dayLengthMinutes > 1 ? 's' : ''}`;
     }
 }
+
+// --- ATTACH FUNCTIONS TO WINDOW FOR HTML ONCLICK HANDLERS ---
+window.switchTownTab = switchTownTab;
+window.buyShopItem = buyShopItem;
+window.sellItem = sellItem;
+window.craftCombine = craftCombine;
+window.eatMeal = eatMeal;
+window.confirmRest = confirmRest;
+window.toggleHeaderExpand = toggleHeaderExpand;
+window.openGameMenu = openGameMenu;
+window.closeGameMenu = closeGameMenu;
+window.resetGameProgress = resetGameProgress;
+window.closeConfirmModal = closeConfirmModal;
+window.executeGameReset = executeGameReset;
+window.toggleExpandInventory = toggleExpandInventory;
+window.switchTab = switchTab;
+window.updateDayLengthSetting = updateDayLengthSetting;
