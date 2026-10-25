@@ -56,6 +56,7 @@ const SCHEMAS = {
     parse: (row) => ({
       id: getField(row, ["id", "typeId", "type_id", "type id"]) || "",
       name: getField(row, ["name"]) || "",
+      symbol: getField(row, ["symbol"]) || "🍲", // <--- Added symbol parsing
       price: number(getField(row, ["price", "value"]), "price", 0),
       dpsBuff: number(getField(row, ["dpsBuff", "dps_buff", "dps buff", "buff"]), "dpsBuff", 0),
       desc: getField(row, ["desc", "description", "details"]) || "",

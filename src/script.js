@@ -21,10 +21,12 @@ const LAYOUT_CONFIG = {
 };
 
 // --- GAME CONSTANTS ---
-const MASS_MAX = 1000000000; // total monster mass
-const MEAL_BUFF_DURATION = 60; // 1 game hour, in seconds
-//const DAY_LENGTH = 120; // in seconds (60 per minute)
+const MASS_MAX = 1000000000;    // total monster mass
+const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
+const DROP_RATE = 0.08;         // chance for a drop on click, less for passive DPS
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
+
+const UPGRADE_TIERS = ['Forged', 'Enhanced', 'Superior'];
 
 let idCounter = 0;
 function generateUniqueId() {
@@ -55,7 +57,13 @@ const gameState = {
     isNight: false,
     mealBuffActive: false,
     mealBuffTimer: 0, // Duration in seconds
-    mealBuffValue: 0  // Stores the active meal's dpsBuff value
+    mealBuffValue: 0,  // Stores the active meal's dpsBuff value
+    mealBuffSymbol: '',
+
+    // DEBUG OPTIONS
+    autoLoot: false,
+    dropRate: DROP_RATE,
+    showMeldAll: false,
 };
 
 // --- PARASITIC MESSAGES ---
@@ -172,8 +180,18 @@ function gameTick() {
         gameState.mealBuffTimer = Math.max(0, gameState.mealBuffTimer - delta);
         if (gameState.mealBuffTimer <= 0) {
             gameState.mealBuffActive = false;
+            gameState.mealBuffSymbol = ''; // Clear symbol
+            
+            // Hide indicator element
+            const indicator = document.getElementById('meal-buff-indicator');
+            if (indicator) {
+                indicator.classList.add('hidden');
+                indicator.innerText = '';
+            }
+
             addLogEntry("Your meal buff has worn off.");
             recalculateStats();
+            updateStatsUI();
         }
     }
 
@@ -195,6 +213,33 @@ function updateDayLengthSetting(val) {
     }
     saveGame();
 }
+
+//#region DEBUG SETTINGS
+function updateAutoLootSetting(isChecked) {
+    gameState.autoLoot = isChecked;
+}
+
+function updateDropRateSetting(val) {
+    const rate = parseInt(val, 10);
+    gameState.dropRate = rate;
+    const label = document.getElementById('drop-rate-label');
+    if (label) {
+        label.innerText = `${rate}%`;
+    }
+}
+
+function updateShowMeldAllSetting(isChecked) {
+    gameState.showMeldAll = isChecked;
+    updateMeldAllButtonVisibility();
+}
+
+function updateMeldAllButtonVisibility() {
+    const btn = document.getElementById('meld-all-btn');
+    if (btn) {
+        btn.classList.toggle('hidden', !gameState.showMeldAll);
+    }
+}
+//#endregion
 
 // --- TIME & DAY/NIGHT CYCLE LOGIC ---
 function updateTimeDisplay() {
@@ -222,23 +267,40 @@ function triggerNightPhase() {
     // Discard all unclaimed ground artifacts so they don't persist to the next day
     gameState.groundItems = [];
     renderTerrainArtifacts();
-    
-    document.getElementById('combat-screen').classList.add('hidden');
-    document.getElementById('combat-screen').classList.remove('flex');
-    document.getElementById('town-screen').classList.remove('hidden');
-    document.getElementById('town-screen').classList.add('flex');
 
-    addLogEntry(`DUSK FALLS. Day ${gameState.dayNumber} has ended. Return to Town.`);
+    // Set text for Night / Town transition
+    document.getElementById('sleep-title').innerHTML = "<b>DAY ENDED</b>";
+    document.getElementById('sleep-subtitle').innerText = "Returning to Town";
 
-    // Force Shop to be the starting tab
-    switchTownTab('shop');
-    renderShop();
+    // Trigger the sleep overlay transition
+    const sleepOverlay = document.getElementById('sleep-overlay');
+    sleepOverlay.classList.remove('pointer-events-none');
+    sleepOverlay.style.opacity = '1';
 
-    updateTimeDisplay();
-    renderInventory();
-    renderCraftingSlots();
+    setTimeout(() => {
+        document.getElementById('combat-screen').classList.add('hidden');
+        document.getElementById('combat-screen').classList.remove('flex');
+        document.getElementById('town-screen').classList.remove('hidden');
+        document.getElementById('town-screen').classList.add('flex');
 
-    saveGame();
+        addLogEntry(`DUSK FALLS. Day ${gameState.dayNumber} has ended. Return to Town.`);
+
+        // Force Shop to be the starting tab
+        switchTownTab('shop');
+        renderShop();
+
+        updateTimeDisplay();
+        renderInventory();
+        renderCraftingSlots();
+
+        saveGame();
+
+        // Fade overlay back out
+        setTimeout(() => {
+            sleepOverlay.style.opacity = '0';
+            sleepOverlay.classList.add('pointer-events-none');
+        }, 1000);
+    }, 2000); // 1-second pause matching your request
 }
 
 //#region --- TOWN SYSTEM TABS ---
@@ -306,11 +368,13 @@ function buyShopItem(itemId) {
         dpsBonus: item.dpsBonus,
         value: Math.floor(item.price * 0.5),
         rarity: 'Purchased',
+        upgradeLevel: 0,
         desc: item.desc
     });
 
     addLogEntry(`Bought [${item.name}] from shop.`);
     recalculateStats();
+    updateStatsUI();
     renderShop();
     renderInventory();
 
@@ -334,6 +398,7 @@ function sellItem(uniqueId) {
     }
 
     recalculateStats();
+    updateStatsUI();
     renderShop();
     renderInventory();
     renderCraftingSlots();
@@ -346,7 +411,12 @@ function renderCraftingSlots() {
     const slotArea = document.getElementById('craft-slots');
     slotArea.innerHTML = '';
 
-    const stackableItems = gameState.inventory.filter(item => (item.quantity || 1) >= 2);
+    // Filter stackable items (quantity >= 2) and exclude items at max upgrade level
+    const stackableItems = gameState.inventory.filter(item => {
+        const qty = item.quantity || 1;
+        const level = item.upgradeLevel || 0;
+        return qty >= 2 && level < UPGRADE_TIERS.length;
+    });
 
     if (stackableItems.length === 0) {
         slotArea.innerHTML = `<div class="text-xs text-slate-600 text-center py-6 italic">No duplicate gear available to fuse.<br>Collect more items during the day!</div>`;
@@ -366,7 +436,7 @@ function renderCraftingSlots() {
                 </div>
             </div>
             <button onclick="craftCombine('${item.uniqueId}')" class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded transition-colors shrink-0">
-                Smelt 2x
+                MELD
             </button>
         `;
         slotArea.appendChild(card);
@@ -377,31 +447,116 @@ function craftCombine(uniqueId) {
     const item = gameState.inventory.find(i => i.uniqueId === uniqueId);
     if (!item || (item.quantity || 1) < 2) return;
 
+    const currentLevel = item.upgradeLevel || 0;
+    
+    // Enforce maximum upgrade limit (3 levels)
+    if (currentLevel >= UPGRADE_TIERS.length) {
+        addLogEntry(`[${item.name}] has already reached maximum upgrade tier (${UPGRADE_TIERS[UPGRADE_TIERS.length - 1]}).`);
+        return;
+    }
+
     item.quantity -= 2;
     if (item.quantity <= 0) {
         const index = gameState.inventory.findIndex(i => i.uniqueId === uniqueId);
         gameState.inventory.splice(index, 1);
     }
 
+    const nextLevel = currentLevel + 1;
+    const tierPrefix = UPGRADE_TIERS[nextLevel - 1];
+    const baseName = item.baseName || item.name;
+
+    // Calculate new stats and value
+    const newClickBonus = Math.round(item.clickBonus * 1.5) + 5;
+    const newDpsBonus = Math.round(item.dpsBonus * 1.5) + 5;
+    const computedValue = calculateItemValue(newClickBonus, newDpsBonus);
+
     const fusedItem = {
         uniqueId: generateUniqueId(),
-        typeId: `${item.typeId}_fused`,
-        name: `Forged ${item.name}`,
+        typeId: `${item.typeId}_t${nextLevel}`,
+        baseName: baseName,
+        name: `${tierPrefix} ${baseName}`,
         symbol: item.symbol,
-        clickBonus: Math.round(item.clickBonus * 1.6) + 5,
-        dpsBonus: Math.round(item.dpsBonus * 1.6) + 5,
-        value: Math.round((item.value || 20) * 2.2),
-        rarity: 'Forged',
-        desc: `Smelted at the town forge. Power amplified.`
+        clickBonus: newClickBonus,
+        dpsBonus: newDpsBonus,
+        value: computedValue,
+        rarity: tierPrefix,
+        upgradeLevel: nextLevel,
+        desc: `Melded to tier ${nextLevel} (${tierPrefix}). Power amplified.`
     };
 
     addItemToInventory(fusedItem);
-    addLogEntry(`SMELTED 2x [${item.name}] into [${fusedItem.name}]!`);
+    addLogEntry(`MELDED [${fusedItem.name}] (Tier ${nextLevel}/3)!`);
     recalculateStats();
+    updateStatsUI();
     renderCraftingSlots();
     renderInventory();
 
     saveGame();
+}
+
+function meldAllItems() {
+    let meldedAny = false;
+    let iterations = 0;
+
+    // Run silently without DOM re-renders or saves inside the loop
+    while (iterations < 100) {
+        const stackableItems = gameState.inventory.filter(item => (item.quantity || 1) >= 2);
+        if (stackableItems.length === 0) break;
+
+        let madeProgress = false;
+        stackableItems.forEach(item => {
+            while ((item.quantity || 1) >= 2) {
+                const currentLevel = item.upgradeLevel || 0;
+                if (currentLevel >= UPGRADE_TIERS.length) break;
+
+                item.quantity -= 2;
+                if (item.quantity <= 0) {
+                    const index = gameState.inventory.findIndex(i => i.uniqueId === item.uniqueId);
+                    if (index !== -1) gameState.inventory.splice(index, 1);
+                }
+
+                const nextLevel = currentLevel + 1;
+                const tierPrefix = UPGRADE_TIERS[nextLevel - 1];
+                const baseName = item.baseName || item.name;
+
+                const newClickBonus = Math.round(item.clickBonus * 1.5) + 5;
+                const newDpsBonus = Math.round(item.dpsBonus * 1.5) + 5;
+
+                const fusedItem = {
+                    uniqueId: generateUniqueId(),
+                    typeId: `${item.typeId}_t${nextLevel}`,
+                    baseName: baseName,
+                    name: `${tierPrefix} ${baseName}`,
+                    symbol: item.symbol,
+                    clickBonus: newClickBonus,
+                    dpsBonus: newDpsBonus,
+                    value: calculateItemValue(newClickBonus, newDpsBonus),
+                    rarity: tierPrefix,
+                    upgradeLevel: nextLevel,
+                    desc: `Smelted to tier ${nextLevel} (${tierPrefix}). Power amplified.`
+                };
+
+                addItemToInventory(fusedItem);
+                meldedAny = true;
+                madeProgress = true;
+            }
+        });
+
+        if (!madeProgress) break;
+        iterations++;
+    }
+
+    if (meldedAny) {
+        // Refresh UI and save exactly once after all fusing is finished
+        recalculateStats();
+        updateStatsUI();
+        renderCraftingSlots();
+        renderInventory();
+        saveGame();
+        addLogEntry("Recursive meld complete: All eligible duplicate gear merged.");
+    } else {
+        addLogEntry("No duplicate gear available to meld.");
+    }
 }
 
 // --- MEALS LOGIC ---
@@ -438,10 +593,18 @@ function eatMeal(mealId) {
     gameState.mealBuffActive = true;
     gameState.mealBuffTimer = MEAL_BUFF_DURATION;
     gameState.mealBuffValue = meal.dpsBuff;
-    document.getElementById('meal-buff-indicator').classList.remove('hidden');
+    gameState.mealBuffSymbol = meal.symbol || '🍴';
 
-    addLogEntry(`Ate [${meal.name}].\nGained +${meal.dpsBuff} extra DPS for 1 Hour.`);
+    // Show indicator element
+    const indicator = document.getElementById('meal-buff-indicator');
+    if (indicator) {
+        indicator.innerText = gameState.mealBuffSymbol;
+        indicator.classList.remove('hidden');
+    }
+
+    addLogEntry(`Ate [${meal.name}].\nGained +${meal.dpsBuff} extra DPS for 1 (game) hour.`);
     recalculateStats();
+    updateStatsUI();
     renderShop();
 
     saveGame();
@@ -449,6 +612,10 @@ function eatMeal(mealId) {
 
 // --- REST LOGIC ---
 function confirmRest() {
+    // Set text back for Dawn transition
+    document.getElementById('sleep-title').innerText = "DAWN OF A NEW DAY";
+    document.getElementById('sleep-subtitle').innerText = "The monster awaits...";
+
     const sleepOverlay = document.getElementById('sleep-overlay');
     sleepOverlay.classList.remove('pointer-events-none');
     sleepOverlay.style.opacity = '1';
@@ -463,6 +630,9 @@ function confirmRest() {
         document.getElementById('town-screen').classList.remove('flex');
         document.getElementById('combat-screen').classList.remove('hidden');
         document.getElementById('combat-screen').classList.add('flex');
+
+        gameState.groundItems = [];
+        renderTerrainArtifacts();
 
         updateTimeDisplay();
         renderInventory();
@@ -520,7 +690,11 @@ function applyDamage(amount, isDirectClick) {
 
 // --- ITEM DROP & TERRAIN SCATTERING (*) ---
 function checkDropTriggers(amount, isDirectClick) {
-    const baseChance = isDirectClick ? 0.08 : 0.008;
+    // If DEBUG_ENABLED is true, use the slider value converted to a decimal (e.g., 8 -> 0.08)
+    // Otherwise use the default constant DROP_RATE.
+    const activeDropRate = DEBUG_ENABLED ? (gameState.dropRate / 100) : DROP_RATE;
+
+    const baseChance = isDirectClick ? activeDropRate : activeDropRate * 0.1;
     if (Math.random() < baseChance) {
         spawnLootDrop();
     }
@@ -552,6 +726,9 @@ function spawnLootDrop() {
     const itemTemplate = availableItems[Math.floor(Math.random() * availableItems.length)];
     if (!itemTemplate) return;
 
+    // Calculate dynamic value based on stats
+    const computedValue = calculateItemValue(itemTemplate.clickBonus, itemTemplate.dpsBonus);
+
     const uniqueGroundItem = {
         uniqueId: generateUniqueId(),
         typeId: itemTemplate.typeId,
@@ -559,8 +736,9 @@ function spawnLootDrop() {
         symbol: itemTemplate.symbol,
         clickBonus: itemTemplate.clickBonus,
         dpsBonus: itemTemplate.dpsBonus,
-        value: itemTemplate.value,
+        value: computedValue,
         rarity: itemTemplate.rarity,
+        upgradeLevel: 0,
         desc: itemTemplate.desc
     };
 
@@ -595,7 +773,20 @@ function animateEjectionTrajectory(groundItem) {
         if (dropLayer.contains(dropEl)) {
             dropLayer.removeChild(dropEl);
         }
-        addToGroundTerrain(groundItem, scatterLeft, scatterBottom);
+
+        // --- AUTO-LOOT LOGIC ---
+        if (gameState.autoLoot) {
+            addItemToInventory(groundItem);
+            const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
+            const msg = msgs[Math.floor(Math.random() * msgs.length)];
+            addLogEntry(`${msg}\n[Auto-Looted] - [${groundItem.name}]`);
+
+            recalculateStats();
+            renderInventory();
+            saveGame();
+        } else {
+            addToGroundTerrain(groundItem, scatterLeft, scatterBottom);
+        }
     }, 620);
 }
 
@@ -641,6 +832,7 @@ function collectGroundItem(uniqueId) {
     addLogEntry(`${msg}\nPicked up (*) - [${item.name}]`);
 
     recalculateStats();
+    updateStatsUI();
     renderInventory();
     renderTerrainArtifacts();
 
@@ -648,7 +840,9 @@ function collectGroundItem(uniqueId) {
 }
 
 function addItemToInventory(newItem) {
-    const existingItem = gameState.inventory.find(i => i.name === newItem.name);
+    const existingItem = gameState.inventory.find(
+        i => i.name === newItem.name && (i.upgradeLevel || 0) === (newItem.upgradeLevel || 0)
+    );
     if (existingItem) {
         existingItem.quantity = (existingItem.quantity || 1) + 1;
     } else {
@@ -657,7 +851,12 @@ function addItemToInventory(newItem) {
     }
 }
 
-// --- STATS RECALCULATION ---
+// --- STATS CALCULATION ---
+function calculateItemValue(clickBonus, dpsBonus) {
+    const totalBonus = clickBonus + dpsBonus;
+    return Math.max(1, Math.round(3.94 * totalBonus + 299.59));
+}
+
 function recalculateStats() {
     let bonusClick = 0;
     let passiveDPS = 0;
@@ -978,7 +1177,8 @@ function saveGame() {
         isNight: gameState.isNight,
         mealBuffActive: gameState.mealBuffActive,
         mealBuffTimer: gameState.mealBuffTimer,
-        mealBuffValue: gameState.mealBuffValue
+        mealBuffValue: gameState.mealBuffValue,
+        mealBuffSymbol: gameState.mealBuffSymbol,
     };
     localStorage.setItem('billion_game_save', JSON.stringify(saveData));
 }
@@ -1014,9 +1214,10 @@ function loadGame() {
                 gameState.timeRemaining -= elapsedSeconds;
 
                 if (gameState.mealBuffActive) {
-                    gameState.mealBuffTimer = Math.max(0, gameState.mealBuffTimer - elapsedSeconds);
-                    if (gameState.mealBuffTimer <= 0) {
-                        gameState.mealBuffActive = false;
+                    const indicator = document.getElementById('meal-buff-indicator');
+                    if (indicator) {
+                        indicator.innerText = `${gameState.mealBuffSymbol || '🍴'} +${gameState.mealBuffValue}`;
+                        indicator.classList.remove('hidden');
                     }
                 }
 
@@ -1071,3 +1272,7 @@ window.executeGameReset = executeGameReset;
 window.toggleExpandInventory = toggleExpandInventory;
 window.switchTab = switchTab;
 window.updateDayLengthSetting = updateDayLengthSetting;
+window.updateAutoLootSetting = updateAutoLootSetting;
+window.updateDropRateSetting = updateDropRateSetting;
+window.updateShowMeldAllSetting = updateShowMeldAllSetting;
+window.meldAllItems = meldAllItems;
