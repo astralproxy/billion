@@ -58,20 +58,21 @@
         <!-- COMBAT SCREEN (ACTIVE DURING DAY) -->
         <div id="combat-screen" class="flex-col shrink-0 gap-2 min-h-0">
             <!-- MONSTER ARENA -->
-            <section id="arena" class="relative h-full flex flex-col justify-center items-center bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">    
-                <!-- Floating Event / Shockwave Notice -->
-                <div id="shockwave-banner" class="absolute top-2 inset-x-0 text-center text-[10px] font-bold text-amber-400 tracking-widest opacity-0 transition-opacity pointer-events-none uppercase z-20">
-                    ⚡ Structural Shockwave! Items Dislodged! ⚡
-                </div>
-
+            <section id="arena" class="relative h-full flex flex-col justify-start items-center bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">    
                 <!-- Monster Canvas Container -->
-                <div id="monster-container" class="relative flex flex-col items-center justify-center w-full h-3/5 my-auto transition-all duration-300">
+                 <!-- adjust the transform: translateY to shift the monster up or down -->
+                <!-- Monster Canvas Container -->
+                <div id="monster-container" class="relative flex flex-col items-center justify-start w-full h-auto transition-all duration-300" style="margin-top: 24px;">    
                     <pre id="monster-ascii" class="ascii-art text-[7px] xs:text-[9px] sm:text-xs md:text-sm font-bold text-slate-500 leading-none transition-all duration-300">
                     <!-- ASCII populated by JS -->
                     </pre>
                 </div>
 
                 <!-- SCATTERED GROUND AREA (BELOW MONSTER) -->
+                 <!-- the two vertical metrics (bottom-6 and h-16) control where the landing zone is placed and how tall it is:
+                  bottom-6 ($6 \times 0.25\text{rem} = 1.5\text{rem}$ or 24px): Sets the distance from the bottom edge of the arena
+                  h-16 ($16 \times 0.25\text{rem} = 4\text{rem}$ or 64px): Sets the total height
+                  -->
                 <div id="ground-terrain" class="absolute bottom-6 inset-x-0 h-16 pointer-events-auto">
                     <!-- Shiny * artifacts land here -->
                 </div>

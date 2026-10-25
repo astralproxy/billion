@@ -11,13 +11,13 @@ let MEALS = [];
 
 // --- LAYOUT CONFIGURATION CONSTANTS ---
 const LAYOUT_CONFIG = {
-    headerHeight: '10vh',       // Tune header height here
-    headerExpandedHeight: '18vh', // Expanded header size
-    mainHeight: '62vh',         // Tune combat/town screen height here
+    headerHeight: '10vh',            // Tune header height here
+    headerExpandedHeight: '20vh',   // Expanded header height
+    mainHeight: '60vh',             // Tune combat/town screen height here
     // Inventory uses flex-1 to fill the rest automatically, 
     // but min/max heights for expansion can be configured here:
-    invMinHeight: '160px',
-    invExpandedHeight: '85vh'   // Expanded inventory height to cover combat + spacing
+    invMinHeight: '180px',
+    invExpandedHeight: '82vh'       // Expanded inventory height to cover combat + spacing
 };
 
 // --- GAME CONSTANTS ---
@@ -142,6 +142,16 @@ window.onload = async () => {
     setupInventorySwipe();
     renderShop();
     renderMeals();
+
+    // Special key combo listener(s)
+    document.addEventListener('keydown', (e) => {
+        if (e.shiftKey && e.altKey && (e.key === 'D' || e.key === 'd')) {
+            e.preventDefault();
+            applyDamage(100000000, false);
+            spawnFloatingDamage('-100,000,000', window.innerWidth / 2, window.innerHeight / 2);
+            addLogEntry("SECRET COMBO ACTIVATED: 100,000,000 Damage!");
+        }
+    });
 };
 
 // --- GAME TICK (10 TICKS / SEC) ---
@@ -698,9 +708,27 @@ function applyDamage(amount, isDirectClick) {
 
     gameState.mass = Math.max(0, gameState.mass - amount);
 
+    if (gameState.mass <= 0) {
+        triggerMassEliminatedSequence();
+        return;
+    }
+
     checkDropTriggers(amount, isDirectClick);
     updateLayerAndNarrative();
     updateStatsUI();
+}
+
+function triggerMassEliminatedSequence() {
+    document.getElementById('sleep-title').innerHTML = "<b>MASS ELIMINATED</b>";
+    document.getElementById('sleep-subtitle').innerText = "Assimilation Complete. Reviving...";
+
+    const sleepOverlay = document.getElementById('sleep-overlay');
+    sleepOverlay.classList.remove('pointer-events-none');
+    sleepOverlay.style.opacity = '1';
+
+    setTimeout(() => {
+        executeGameReset();
+    }, 2500);
 }
 
 // --- ITEM DROP & TERRAIN SCATTERING (*) ---
@@ -716,20 +744,8 @@ function checkDropTriggers(amount, isDirectClick) {
     const percentageLost = Math.floor((1 - gameState.mass / gameState.maxMass) * 10);
     if (percentageLost > 0 && !gameState.milestonesReached.has(percentageLost)) {
         gameState.milestonesReached.add(percentageLost);
-        triggerStructuralShockwave();
+        // TODO: trigger special animation or event
     }
-}
-
-function triggerStructuralShockwave() {
-    const banner = document.getElementById('shockwave-banner');
-    banner.style.opacity = '1';
-    setTimeout(() => { banner.style.opacity = '0'; }, 1800);
-
-    const dropCount = 2 + Math.floor(Math.random() * 2);
-    for (let i = 0; i < dropCount; i++) {
-        setTimeout(() => spawnLootDrop(), i * 200);
-    }
-    addLogEntry("A STRUCTURAL SHOCKWAVE ripples through the mass! Items pop loose!");
 }
 
 function spawnLootDrop() {
