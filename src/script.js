@@ -23,8 +23,15 @@ const LAYOUT_CONFIG = {
 // --- GAME CONSTANTS ---
 const MASS_MAX = 1000000000;    // total monster mass
 const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
-const DROP_RATE = 0.08;         // chance for a drop on click, less for passive DPS
+const DROP_RATE = 8;            // percent chance for a drop on click, less for passive DPS
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
+
+const LAYER_THRESHOLDS = [
+    { threshold: 0.1, layer: 5 },
+    { threshold: 0.35, layer: 4 },
+    { threshold: 0.65,  layer: 3 },
+    { threshold: 0.9,  layer: 2 }
+];
 
 const UPGRADE_TIERS = ['Forged', 'Enhanced', 'Superior'];
 
@@ -333,7 +340,15 @@ function renderShop() {
     updateGoldUI();
     container.innerHTML = '';
 
-    SHOP_ITEMS.forEach(item => {
+    // Filter shop items unlocked up to the player's current layer (or use strict === gameState.layer if preferred)
+    const availableShopItems = SHOP_ITEMS.filter(item => (item.layer || 1) <= gameState.layer);
+
+    if (availableShopItems.length === 0) {
+        container.innerHTML = `<div class="text-xs text-slate-600 text-center py-6 italic">No gear available right now.</div>`;
+        return;
+    }
+
+    availableShopItems.forEach(item => {
         const div = document.createElement('div');
         div.className = 'bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex justify-between items-center';
         div.innerHTML = `
@@ -690,9 +705,8 @@ function applyDamage(amount, isDirectClick) {
 
 // --- ITEM DROP & TERRAIN SCATTERING (*) ---
 function checkDropTriggers(amount, isDirectClick) {
-    // If DEBUG_ENABLED is true, use the slider value converted to a decimal (e.g., 8 -> 0.08)
-    // Otherwise use the default constant DROP_RATE.
-    const activeDropRate = DEBUG_ENABLED ? (gameState.dropRate / 100) : DROP_RATE;
+    // Convert to a decimal (e.g., 8 -> 0.08) for percent based calculations
+    const activeDropRate = (DEBUG_ENABLED ? gameState.dropRate : DROP_RATE) / 100;
 
     const baseChance = isDirectClick ? activeDropRate : activeDropRate * 0.1;
     if (Math.random() < baseChance) {
@@ -722,8 +736,13 @@ function spawnLootDrop() {
     // Wait until CSV is loaded
     if (!ITEM_DATABASE || ITEM_DATABASE.length === 0) return;
 
-    const availableItems = ITEM_DATABASE.slice(0, Math.min(ITEM_DATABASE.length, gameState.layer + 1));
-    const itemTemplate = availableItems[Math.floor(Math.random() * availableItems.length)];
+    // Filter items matching the player's exact current layer
+    const availableItems = ITEM_DATABASE.filter(item => (item.layer || 1) === gameState.layer);
+    
+    // Fallback to layer 1 items if no items are defined for the current layer yet
+    const pool = availableItems.length > 0 ? availableItems : ITEM_DATABASE.filter(item => (item.layer || 1) === 1);
+    
+    const itemTemplate = pool[Math.floor(Math.random() * pool.length)];
     if (!itemTemplate) return;
 
     // Calculate dynamic value based on stats
@@ -736,7 +755,6 @@ function spawnLootDrop() {
         symbol: itemTemplate.symbol,
         clickBonus: itemTemplate.clickBonus,
         dpsBonus: itemTemplate.dpsBonus,
-        value: computedValue,
         rarity: itemTemplate.rarity,
         upgradeLevel: 0,
         desc: itemTemplate.desc
@@ -881,11 +899,9 @@ function recalculateStats() {
 function updateLayerAndNarrative() {
     const massRatio = gameState.mass / gameState.maxMass;
 
-    let newLayer = 1;
-    if (massRatio < 0.8) newLayer = 2;
-    if (massRatio < 0.5) newLayer = 3;
-    if (massRatio < 0.25) newLayer = 4;
-    if (massRatio < 0.08) newLayer = 5;
+    // Determine new layer from thresholds (defaults to layer 1 if above 0.8)
+    const matchedThreshold = LAYER_THRESHOLDS.find(t => massRatio < t.threshold);
+    const newLayer = matchedThreshold ? matchedThreshold.layer : 1;
 
     if (newLayer !== gameState.layer) {
         gameState.layer = newLayer;
