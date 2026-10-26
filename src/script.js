@@ -21,11 +21,12 @@ const LAYOUT_CONFIG = {
 };
 
 // --- GAME CONSTANTS ---
+// DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
 const MASS_MAX = 1000000000;    // total monster mass
 const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
 const DROP_RATE = 8;            // percent chance for a drop on click, less for passive DPS
 const MAX_DROPS_ON_GROUND = 10; // Stop drops here until some are picked up
-// DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
+const SHOP_PRICE_MOD = 1.5;
 
 const LAYER_THRESHOLDS = [
     { threshold: 0.1, layer: 5 },
@@ -442,6 +443,9 @@ function renderShop() {
     }
 
     availableShopItems.forEach(item => {
+        // Determine shop prices, with a multiplier over normal values
+        const itemVal = Math.round(calculateItemValue(item.clickBonus, item.dpsBonus) * SHOP_PRICE_MOD);
+
         const div = document.createElement('div');
         div.className = 'bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex justify-between items-center';
         div.innerHTML = `
@@ -450,7 +454,7 @@ function renderShop() {
                 <div class="text-[10px] text-slate-400">${item.desc}</div>
             </div>
             <button onclick="buyShopItem('${item.id}')" class="px-3 py-1.5 bg-amber-500/20 border border-amber-500/50 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-xs font-bold rounded transition-colors shrink-0">
-                ${item.price} 🪙
+                ${itemVal} 🪙
             </button>
         `;
         container.appendChild(div);
@@ -461,12 +465,15 @@ function buyShopItem(itemId) {
     const item = SHOP_ITEMS.find(i => i.id === itemId);
     if (!item) return;
 
-    if (gameState.gold < item.price) {
+    const price = Number(item.price) || 0;
+    if (gameState.gold < price) {
         addLogEntry("Not enough gold to purchase item!");
         return;
     }
 
-    gameState.gold -= item.price;
+    gameState.gold -= price;
+    if (isNaN(gameState.gold)) gameState.gold = 0; // Fallback safeguard
+
     addItemToInventory({
         uniqueId: generateUniqueId(),
         typeId: item.id,
@@ -497,10 +504,10 @@ function sellItem(uniqueId) {
 
     const item = gameState.inventory[index];
     const qty = item.quantity || 1;
-    if (qty < 10) return;
 
-    // Keep 1, sell (qty - 1)
-    const sellCount = qty - 1;
+    // If quantity is 1, sell the whole item and remove from inventory
+    // If quantity > 1, keep 1 and sell (qty - 1)
+    const sellCount = qty > 1 ? qty - 1 : 1;
     const singlePrice = item.value || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0);
     const totalPrice = singlePrice * sellCount;
 
@@ -1107,7 +1114,8 @@ function addItemToInventory(newItem) {
 // --- STATS CALCULATION ---
 function calculateItemValue(clickBonus, dpsBonus) {
     const totalBonus = clickBonus + dpsBonus;
-    return Math.max(1, Math.round(3.94 * totalBonus + 299.59));
+    const scaledValue = Math.max(1, Math.round(3.94 * totalBonus + 299.59));
+    return Math.round(scaledValue / 10) * 10;
 }
 
 function recalculateStats() {

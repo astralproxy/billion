@@ -46,7 +46,6 @@ const SCHEMAS = {
     parse: (row) => ({
       id: getField(row, ["id", "typeId", "type_id", "type id"]) || "",
       name: getField(row, ["name"]) || "",
-      price: number(getField(row, ["price", "value"]), "price", 0),
       clickBonus: number(getField(row, ["clickBonus", "click_bonus", "click bonus", "click"]), "clickBonus", 0),
       dpsBonus: number(getField(row, ["dpsBonus", "dps_bonus", "dps bonus", "dps"]), "dpsBonus", 0),
       layer: number(getField(row, ["layer"]), "layer", 1),
