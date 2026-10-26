@@ -601,9 +601,10 @@ function buyBackItem(index) {
     gameState.gold -= totalCost;
     gameState.buybackList.splice(index, 1);
 
-    // Remove temporary tracking properties before returning to bag
+    // Remove temporary tracking properties and preserve the stack quantity
     const { sellPrice, ...cleanItem } = item;
     cleanItem.uniqueId = generateUniqueId();
+    cleanItem.quantity = qty; // <--- Explicitly preserve the bought-back quantity
     addItemToInventory(cleanItem);
 
     addLogEntry(`Bought back [${cleanItem.name}] (x${qty}) for ${totalCost} Gold.`);
@@ -1095,7 +1096,7 @@ function addItemToInventory(newItem) {
         i => i.name === newItem.name && (i.upgradeLevel || 0) === (newItem.upgradeLevel || 0)
     );
     if (existingItem) {
-        existingItem.quantity = (existingItem.quantity || 1) + 1;
+        existingItem.quantity = (existingItem.quantity || 1) + newItem.quantity;
     } else {
         newItem.quantity = newItem.quantity || 1;
         gameState.inventory.push(newItem);
