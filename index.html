@@ -70,8 +70,8 @@
 
                 <!-- SCATTERED GROUND AREA (BELOW MONSTER) -->
                  <!-- the two vertical metrics (bottom-6 and h-16) control where the landing zone is placed and how tall it is:
-                  bottom-6 ($6 \times 0.25\text{rem} = 1.5\text{rem}$ or 24px): Sets the distance from the bottom edge of the arena
-                  h-16 ($16 \times 0.25\text{rem} = 4\text{rem}$ or 64px): Sets the total height
+                  bottom-6 (6 * 0.25rem = 1.5rem or 24px): Sets the distance from the bottom edge of the arena
+                  h-16 (16 * 0.25rem = 4rem or 64px): Sets the total height
                   -->
                 <div id="ground-terrain" class="absolute bottom-6 inset-x-0 h-16 pointer-events-auto">
                     <!-- Shiny * artifacts land here -->
@@ -79,8 +79,11 @@
 
                 <!-- Player Avatar at Bottom of Arena -->
                 <div class="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none">
-                    <div id="player-avatar" class="text-[9px] text-sky-400 font-mono font-bold leading-tight text-center animate-pulse">
-                        o<br>/|\<br>/ \
+                    <div class="relative flex items-center">
+                        <div id="player-avatar" class="text-[9px] text-sky-400 font-mono font-bold leading-tight text-center animate-pulse">
+                            o<br>/|\<br>/ \
+                        </div>
+                        <div id="max-capacity-star" class="absolute text-[10px] text-slate-400 star-artifact hidden" style="left: -1px; top: 0px;">*</div>
                     </div>
                     <!-- <div class="text-[8px] text-slate-500 tracking-tight">YOU</div> -->
                 </div>
@@ -115,9 +118,14 @@
             <div class="flex-1 p-3 overflow-y-auto">
                 <!-- SHOP TAB -->
                 <div id="town-content-shop" class="space-y-3">
-                    <div class="text-xs text-slate-400 border-b border-slate-800 pb-2">
-                        <span>Merchant's Bazaar</span>
-                        <p class="text-[10px] text-slate-500 mt-0.5">Sell items for gold, and buy items to gain power.</p>
+                    <div class="flex justify-between items-center border-b border-slate-800 pb-2">
+                        <div>
+                            <span class="text-xs text-slate-400">Merchant's Bazaar</span>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Sell items for gold, and buy items to gain power.</p>
+                        </div>
+                        <button id="buyback-btn" onclick="toggleBuyBackView()" class="hidden bg-amber-500/20 border border-amber-500/50 px-2 py-1 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-[10px] font-bold rounded transition-colors shrink-0">
+                            Buy Back
+                        </button>
                     </div>
                     <div id="shop-item-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <!-- Shop Items Populated by JS -->
@@ -131,7 +139,7 @@
                             <span class="text-xs text-slate-400">Crafting Station</span>
                             <p class="text-[10px] text-slate-500 mt-0.5">Combine duplicate items to forge an upgraded artifact.</p>
                         </div>
-                        <button id="meld-all-btn" onclick="meldAllItems()" class="hidden px-2.5 py-1 bg-sky-600/20 border border-sky-500/50 hover:bg-sky-600 hover:text-white text-sky-300 text-[10px] font-bold rounded transition-colors shrink-0">
+                        <button id="meld-all-btn" onclick="meldAllItems()" class="bg-sky-600/20 border border-sky-500/50 px-2 py-1 hover:bg-sky-600 hover:text-white text-sky-300 text-[10px] font-bold rounded transition-colors shrink-0">
                             Meld ALL
                         </button>
                     </div>
@@ -226,7 +234,7 @@
             </div>
             <!-- Show Meld ALL Button Setting -->
             <div class="flex items-center pt-2 border-t border-slate-800 text-xs">
-                <input id="show-meld-all-checkbox" type="checkbox" onchange="updateShowMeldAllSetting(this.checked)" class="w-4 h-4 accent-amber-500 cursor-pointer rounded">
+                <input id="show-meld-all-checkbox" type="checkbox" checked onchange="updateShowMeldAllSetting(this.checked)" class="w-4 h-4 accent-amber-500 cursor-pointer rounded">
                 <span class="text-slate-300 font-medium">&nbsp;Show Meld ALL Button</span>
             </div>
             <div class="flex flex-col gap-1.5 pt-2 border-t border-slate-800">

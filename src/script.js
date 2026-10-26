@@ -24,6 +24,7 @@ const LAYOUT_CONFIG = {
 const MASS_MAX = 1000000000;    // total monster mass
 const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
 const DROP_RATE = 8;            // percent chance for a drop on click, less for passive DPS
+const MAX_DROPS_ON_GROUND = 10; // Stop drops here until some are picked up
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
 
 const LAYER_THRESHOLDS = [
@@ -51,26 +52,27 @@ const gameState = {
     gold: 50,
     layer: 1,
     totalHits: 0,
-    inventory: [],     // Items in bag
-    groundItems: [],   // Scattered '*' artifact drops on terrain 
+    inventory: [],          // Items in bag
+    groundItems: [],        // Scattered '*' artifact drops on terrain 
     milestonesReached: new Set(),
     assimilationStage: 0,
     
     // DAY / NIGHT & TOWN MECHANICS
     dayNumber: 1,
-    totalGameTime: 0, // in seconds
-    dayLengthMinutes: 2, // Default 2 minutes
-    timeRemaining: 120,  // Initialized to 2 minutes in seconds
+    totalGameTime: 0,       // in seconds
+    dayLengthMinutes: 2,    // Default 2 minutes
+    timeRemaining: 120,     // Initialized to 2 minutes in seconds
     isNight: false,
     mealBuffActive: false,
-    mealBuffTimer: 0, // Duration in seconds
-    mealBuffValue: 0,  // Stores the active meal's dpsBuff value
+    mealBuffTimer: 0,       // Duration in seconds
+    mealBuffValue: 0,       // Stores the active meal's dpsBuff value
     mealBuffSymbol: '',
+    buybackList: [],        // Track up to 5 recently sold items
 
     // DEBUG OPTIONS
     autoLoot: false,
     dropRate: DROP_RATE,
-    showMeldAll: false,
+    showMeldAll: true,
 };
 
 // --- PARASITIC MESSAGES ---
@@ -137,7 +139,41 @@ window.onload = async () => {
     setInterval(gameTick, 100);
     setInterval(saveGame, 10000);
 
-    document.getElementById('arena').addEventListener('click', handleAttack);
+    const arena = document.getElementById('arena');
+    arena.addEventListener('click', handleAttack);
+
+    if (DEBUG_ENABLED) {
+        let autoClickHoldTimeout = null;
+        let autoClickHoldInterval = null;
+
+        const stopHold = () => {
+            if (autoClickHoldTimeout) {
+                clearTimeout(autoClickHoldTimeout);
+                autoClickHoldTimeout = null;
+            }
+            if (autoClickHoldInterval) {
+                clearInterval(autoClickHoldInterval);
+                autoClickHoldInterval = null;
+            }
+        };
+
+        const startHold = (e) => {
+            stopHold();
+            // Start auto-attacking after holding for 300ms
+            autoClickHoldTimeout = setTimeout(() => {
+                autoClickHoldInterval = setInterval(() => {
+                    handleAttack(e);
+                }, 500);
+            }, 500);
+        };
+
+        arena.addEventListener('mousedown', startHold);
+        arena.addEventListener('mouseup', stopHold);
+        arena.addEventListener('mouseleave', stopHold);
+        arena.addEventListener('touchstart', startHold, { passive: true });
+        arena.addEventListener('touchend', stopHold);
+        arena.addEventListener('touchcancel', stopHold);
+    }
 
     setupInventorySwipe();
     renderShop();
@@ -178,9 +214,11 @@ function gameTick() {
     lastTickTime = now;
     if (delta <= 0) return;
 
-    // Increment total game time every tick (10 ticks per second = 0.1s)
-    gameState.totalGameTime += delta;
-    updateTotalGameTimeDisplay();
+    // Increment total game time during day, or at night if the window has focus
+    if (!gameState.isNight || document.hasFocus()) {
+        gameState.totalGameTime += delta;
+        updateTotalGameTimeDisplay();
+    }
 
     // DAY/NIGHT TIMER MANAGEMENT
     if (!gameState.isNight) {
@@ -350,7 +388,51 @@ function renderShop() {
     updateGoldUI();
     container.innerHTML = '';
 
-    // Filter shop items unlocked up to the player's current layer (or use strict === gameState.layer if preferred)
+    const buybackBtn = document.getElementById('buyback-btn');
+    if (buybackBtn) {
+        buybackBtn.classList.toggle('hidden', gameState.buybackList.length === 0 && !isViewingBuyBack);
+    }
+
+    if (isViewingBuyBack) {
+        if (gameState.buybackList.length === 0) {
+            container.innerHTML = `<div class="col-span-full text-xs text-slate-600 text-center py-6 italic">No recently sold items to buy back.</div>`;
+            return;
+        }
+
+        gameState.buybackList.forEach((item, index) => {
+            const qty = item.quantity || 1;
+            const displayName = qty > 1 ? `${item.name} (x${qty})` : item.name;
+            const unitPrice = item.sellPrice || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0);
+            const totalCost = unitPrice * qty;
+
+            const tierPill = item.upgradeLevel && item.upgradeLevel > 0
+                ? `<span class="text-[9px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded inline-block mb-0.5">${UPGRADE_TIERS[item.upgradeLevel - 1]}</span>`
+                : '';
+            const div = document.createElement('div');
+            div.className = 'bg-slate-950 border border-slate-800 p-2.5 rounded-lg flex justify-between items-center';
+            div.innerHTML = `
+                <div class="flex items-center gap-2">
+                    <span class="text-xl">${item.symbol}</span>
+                    <div>
+                        ${tierPill}
+                        <div class="text-xs font-bold text-slate-200">${displayName}</div>
+                        <div class="text-[10px] text-emerald-400 font-medium">
+                            ${item.dpsBonus > 0 ? `+${item.dpsBonus} DPS` : ''} 
+                            ${item.clickBonus > 0 ? `+${item.clickBonus} Click` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="buyBackItem(${index})" class="px-3 py-1.5 bg-sky-600/20 border border-sky-500/50 hover:bg-sky-600 hover:text-white text-sky-300 text-xs font-bold rounded transition-colors shrink-0">
+                    Value: ${totalCost} 🪙
+                </button>
+            `;
+            container.appendChild(div);
+        });
+        return;
+    }
+
+    // Filter shop items unlocked up to the player's current layer
     const availableShopItems = SHOP_ITEMS.filter(item => (item.layer || 1) <= gameState.layer);
 
     if (availableShopItems.length === 0) {
@@ -406,27 +488,129 @@ function buyShopItem(itemId) {
     saveGame();
 }
 
+let isViewingBuyBack = false;
+
 function sellItem(uniqueId) {
     const index = gameState.inventory.findIndex(i => i.uniqueId === uniqueId);
     if (index === -1) return;
 
     const item = gameState.inventory[index];
-    const sellPrice = item.value || 1;
-    gameState.gold += sellPrice;
+    const qty = item.quantity || 1;
+    if (qty < 10) return;
 
-    if (item.quantity && item.quantity > 1) {
-        item.quantity--;
-        addLogEntry(`Sold 1x [${item.name}] for ${sellPrice} Gold.`);
-    } else {
-        gameState.inventory.splice(index, 1);
-        addLogEntry(`Sold [${item.name}] for ${sellPrice} Gold.`);
+    // Keep 1, sell (qty - 1)
+    const sellCount = qty - 1;
+    const singlePrice = item.value || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0);
+    const totalPrice = singlePrice * sellCount;
+
+    gameState.gold += totalPrice;
+
+    // Track for buyback with the full sold quantity
+    const itemCopy = { 
+        ...item, 
+        quantity: sellCount, 
+        value: singlePrice,
+        sellPrice: singlePrice 
+    };
+    gameState.buybackList.unshift(itemCopy);
+    if (gameState.buybackList.length > 5) {
+        gameState.buybackList.pop();
     }
+
+    // Retain only 1 in inventory
+    item.quantity = 1;
+    addLogEntry(`Sold ${sellCount}x [${item.name}] for ${totalPrice} Gold (Kept 1).`);
 
     recalculateStats();
     updateStatsUI();
     renderShop();
     renderInventory();
     renderCraftingSlots();
+
+    saveGame();
+}
+
+function sellAllMinusOne(uniqueId) {
+    const index = gameState.inventory.findIndex(i => i.uniqueId === uniqueId);
+    if (index === -1) return;
+
+    const item = gameState.inventory[index];
+    const qty = item.quantity || 1;
+    if (qty < 10) return;
+
+    // Sell everything except 1
+    const sellCount = qty - 1;
+    const singlePrice = calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0);
+    const totalPrice = singlePrice * sellCount;
+
+    gameState.gold += totalPrice;
+
+    // Push to buyback list with the exact quantity sold
+    const itemCopy = { 
+        ...item, 
+        quantity: sellCount, 
+        value: singlePrice,
+        sellPrice: singlePrice 
+    };
+    gameState.buybackList.unshift(itemCopy);
+    if (gameState.buybackList.length > 5) {
+        gameState.buybackList.pop();
+    }
+
+    // Leave exactly 1 in bag
+    item.quantity = 1;
+    addLogEntry(`Sold ${sellCount}x [${item.name}] for ${totalPrice} Gold (Kept 1).`);
+
+    recalculateStats();
+    updateStatsUI();
+    renderShop();
+    renderInventory();
+    renderCraftingSlots();
+
+    saveGame();
+}
+
+function toggleBuyBackView() {
+    isViewingBuyBack = !isViewingBuyBack;
+    const btn = document.getElementById('buyback-btn');
+    if (btn) {
+        if (isViewingBuyBack) {
+            btn.innerText = "Return to Shop";
+            btn.className = "bg-sky-600/20 border border-sky-500/50 px-2 py-2 hover:bg-sky-600 hover:text-white text-sky-300 text-[10px] font-bold rounded transition-colors shrink-0";
+        } else {
+            btn.innerText = "Buy Back";
+            btn.className = "bg-amber-500/20 border border-amber-500/50 px-2 py-2 hover:bg-amber-500 hover:text-slate-950 text-amber-300 text-[10px] font-bold rounded transition-colors shrink-0";
+        }
+    }
+    renderShop();
+}
+
+function buyBackItem(index) {
+    const item = gameState.buybackList[index];
+    if (!item) return;
+
+    const qty = item.quantity || 1;
+    const unitPrice = item.sellPrice || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0);
+    const totalCost = unitPrice * qty;
+
+    if (gameState.gold < totalCost) {
+        addLogEntry("Not enough gold to buy back item stack!");
+        return;
+    }
+
+    gameState.gold -= totalCost;
+    gameState.buybackList.splice(index, 1);
+
+    // Remove temporary tracking properties before returning to bag
+    const { sellPrice, ...cleanItem } = item;
+    cleanItem.uniqueId = generateUniqueId();
+    addItemToInventory(cleanItem);
+
+    addLogEntry(`Bought back [${cleanItem.name}] (x${qty}) for ${totalCost} Gold.`);
+    recalculateStats();
+    updateStatsUI();
+    renderShop();
+    renderInventory();
 
     saveGame();
 }
@@ -499,7 +683,7 @@ function craftCombine(uniqueId) {
         uniqueId: generateUniqueId(),
         typeId: `${item.typeId}_t${nextLevel}`,
         baseName: baseName,
-        name: `${tierPrefix} ${baseName}`,
+        name: `${baseName}`, // base only, upgrade status is a separate pill
         symbol: item.symbol,
         clickBonus: newClickBonus,
         dpsBonus: newDpsBonus,
@@ -551,7 +735,7 @@ function meldAllItems() {
                     uniqueId: generateUniqueId(),
                     typeId: `${item.typeId}_t${nextLevel}`,
                     baseName: baseName,
-                    name: `${tierPrefix} ${baseName}`,
+                    name: `${baseName}`, // base only, upgrade status is a separate pill
                     symbol: item.symbol,
                     clickBonus: newClickBonus,
                     dpsBonus: newDpsBonus,
@@ -751,6 +935,9 @@ function checkDropTriggers(amount, isDirectClick) {
 function spawnLootDrop() {
     // Wait until CSV is loaded
     if (!ITEM_DATABASE || ITEM_DATABASE.length === 0) return;
+    
+    // Only allow so many drops at a time
+    if (gameState.groundItems.length >= MAX_DROPS_ON_GROUND) return;
 
     // Filter items matching the player's exact current layer
     const availableItems = ITEM_DATABASE.filter(item => (item.layer || 1) === gameState.layer);
@@ -771,6 +958,7 @@ function spawnLootDrop() {
         symbol: itemTemplate.symbol,
         clickBonus: itemTemplate.clickBonus,
         dpsBonus: itemTemplate.dpsBonus,
+        value: computedValue,
         rarity: itemTemplate.rarity,
         upgradeLevel: 0,
         desc: itemTemplate.desc
@@ -782,46 +970,68 @@ function spawnLootDrop() {
 function animateEjectionTrajectory(groundItem) {
     const dropLayer = document.getElementById('drop-layer');
     const dropEl = document.createElement('div');
-    // Exclude 'star-artifact' here so it doesn't conflict with trajectory positioning
-    dropEl.className = 'ejecting-item text-amber-300 font-bold text-xl cursor-pointer select-none';
+    dropEl.className = 'absolute text-amber-300 font-bold text-xl cursor-pointer select-none';
     dropEl.innerText = '*';
 
-    const startX = 35 + Math.random() * 30; // %
-    const startY = 30 + Math.random() * 20; // %
-    dropEl.style.left = `${startX}%`;
-    dropEl.style.top = `${startY}%`;
+    const arenaRect = dropLayer.getBoundingClientRect();
+    const startX = arenaRect.width * (0.35 + Math.random() * 0.3);
+    const startY = arenaRect.height * (0.3 + Math.random() * 0.2);
 
+    const scatterLeftPct = 10 + Math.random() * 80;
+    const endX = arenaRect.width * (scatterLeftPct / 100);
+    const endY = arenaRect.height - 40; // Landing near bottom
+
+    dropEl.style.left = `${startX}px`;
+    dropEl.style.top = `${startY}px`;
     dropLayer.appendChild(dropEl);
 
-    const scatterLeft = 10 + Math.random() * 80; // %
-    const scatterBottom = 10 + Math.random() * 35; // px
+    const duration = 650;
+    const startTime = performance.now();
+    // Peak height offset for the arc (negative goes upwards)
+    const peakHeight = -80 - Math.random() * 50; 
 
-    requestAnimationFrame(() => {
-        setTimeout(() => {
-            dropEl.style.left = `${scatterLeft}%`;
-            dropEl.style.top = `80%`;
-        }, 20);
-    });
+    function frame(now) {
+        const elapsed = now - startTime;
+        const progress = Math.min(1, elapsed / duration);
 
-    setTimeout(() => {
-        if (dropLayer.contains(dropEl)) {
-            dropLayer.removeChild(dropEl);
-        }
+        // Ease out quad for smooth deceleration
+        const easeProgress = 1 - (1 - progress) * (1 - progress);
 
-        // --- AUTO-LOOT LOGIC ---
-        if (gameState.autoLoot) {
-            addItemToInventory(groundItem);
-            const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
-            const msg = msgs[Math.floor(Math.random() * msgs.length)];
-            addLogEntry(`${msg}\n[Auto-Looted] - [${groundItem.name}]`);
+        // Linear interpolation for X, Parabolic arc for Y
+        const currentX = startX + (endX - startX) * easeProgress;
+        
+        // Quadratic bezier curve formula for Y (creates the arc peak)
+        const currentY = startY + (endY - startY) * easeProgress + peakHeight * Math.sin(progress * Math.PI);
 
-            recalculateStats();
-            renderInventory();
-            saveGame();
+        dropEl.style.left = `${currentX}px`;
+        dropEl.style.top = `${currentY}px`;
+
+        if (progress < 1) {
+            requestAnimationFrame(frame);
         } else {
-            addToGroundTerrain(groundItem, scatterLeft, scatterBottom);
+            if (dropLayer.contains(dropEl)) {
+                dropLayer.removeChild(dropEl);
+            }
+
+            const scatterBottom = 10 + Math.random() * 35;
+
+            // --- AUTO-LOOT LOGIC ---
+            if (gameState.autoLoot) {
+                addItemToInventory(groundItem);
+                const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
+                const msg = msgs[Math.floor(Math.random() * msgs.length)];
+                addLogEntry(`${msg}\n[Auto-Looted] - [${groundItem.name}]`);
+
+                recalculateStats();
+                renderInventory();
+                saveGame();
+            } else {
+                addToGroundTerrain(groundItem, scatterLeftPct, scatterBottom);
+            }
         }
-    }, 620);
+    }
+
+    requestAnimationFrame(frame);
 }
 
 function addToGroundTerrain(item, leftPct, bottomPx) {
@@ -851,6 +1061,12 @@ function renderTerrainArtifacts() {
 
         terrain.appendChild(starDiv);
     });
+
+    // Show indicator when max items are on the ground
+    const maxStar = document.getElementById('max-capacity-star');
+    if (maxStar) {
+        maxStar.classList.toggle('hidden', gameState.groundItems.length < MAX_DROPS_ON_GROUND);
+    }
 }
 
 function collectGroundItem(uniqueId) {
@@ -874,6 +1090,7 @@ function collectGroundItem(uniqueId) {
 }
 
 function addItemToInventory(newItem) {
+    newItem.quantity = newItem.quantity || 1;
     const existingItem = gameState.inventory.find(
         i => i.name === newItem.name && (i.upgradeLevel || 0) === (newItem.upgradeLevel || 0)
     );
@@ -984,24 +1201,38 @@ function renderInventory() {
     gameState.inventory.forEach((item) => {
         const qty = item.quantity || 1;
         const displayName = qty > 1 ? `${item.name} (x${qty})` : item.name;
+        const tierPill = item.upgradeLevel && item.upgradeLevel > 0
+            ? `<span class="text-[9px] font-mono text-amber-400 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded inline-block mb-0.5">${UPGRADE_TIERS[item.upgradeLevel - 1]}</span>`
+            : '';
+        //const card = document.createElement('div');
+        //card.className = 'bg-slate-950 border border-slate-800 p-2 rounded-lg flex items-start justify-between gap-2 shadow-sm';
         const card = document.createElement('div');
-        card.className = 'bg-slate-950 border border-slate-800 p-2 rounded-lg flex items-start justify-between gap-2 shadow-sm';
+        card.className = 'bg-slate-950 border border-slate-800 p-2 rounded-lg flex items-center justify-between gap-2 shadow-sm';
         card.innerHTML = `
             <div class="flex items-start gap-2 min-w-0">
                 <div class="text-xl p-1.5 bg-slate-900 rounded border border-slate-800 shrink-0">${item.symbol}</div>
                 <div class="min-w-0">
+                    ${tierPill}
                     <div class="text-xs font-bold text-slate-200 truncate">${displayName}</div>
                     <div class="text-[10px] text-emerald-400 font-medium">
                         ${item.dpsBonus > 0 ? `+${item.dpsBonus} DPS` : ''} 
                         ${item.clickBonus > 0 ? `+${item.clickBonus} Click` : ''}
                     </div>
-                    <div class="text-[9px] text-slate-500 italic truncate">${item.desc}</div>
+                    <div class="text-[9px] text-slate-500 italic whitespace-normal break-words">${item.desc}</div>
                 </div>
             </div>
+
             ${gameState.isNight && activeTownTab === 'shop' ? `
-                <button onclick="sellItem('${item.uniqueId}')" class="px-2 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded shrink-0">
-                    Sell (${item.value || 15}🪙)
-                </button>
+                <div class="flex flex-col gap-1 items-end shrink-0">
+                    <button onclick="sellItem('${item.uniqueId}')" class="px-2 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold rounded">
+                        Sell (${item.value || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0)}🪙)
+                    </button>
+                    ${qty >= 10 ? `
+                        <button onclick="sellAllMinusOne('${item.uniqueId}')" class="px-2 py-1 bg-red-500/20 border border-red-500/40 hover:bg-red-500 hover:text-white text-red-300 text-[9px] font-bold rounded transition-colors">
+                            Sell ALL-1 (${(item.value || calculateItemValue(item.clickBonus || 0, item.dpsBonus || 0)) * (qty - 1)}🪙)
+                        </button>
+                    ` : ''}
+                </div>
             ` : ''}
         `;
         container.appendChild(card);
@@ -1211,6 +1442,7 @@ function saveGame() {
         mealBuffTimer: gameState.mealBuffTimer,
         mealBuffValue: gameState.mealBuffValue,
         mealBuffSymbol: gameState.mealBuffSymbol,
+        showMeldAll: gameState.showMeldAll,
     };
     localStorage.setItem('billion_game_save', JSON.stringify(saveData));
 }
@@ -1222,7 +1454,6 @@ function loadGame() {
     try {
         const data = JSON.parse(saved);
         gameState.dayNumber = data.dayNumber ?? gameState.dayNumber;
-        gameState.dayLengthMinutes = data.dayLengthMinutes ?? gameState.dayLengthMinutes;
         gameState.timeRemaining = data.timeRemaining ?? gameState.timeRemaining;
         gameState.mass = data.mass ?? gameState.mass;
         gameState.layer = data.layer ?? gameState.layer;
@@ -1237,6 +1468,20 @@ function loadGame() {
         gameState.mealBuffTimer = data.mealBuffTimer ?? gameState.mealBuffTimer;
         gameState.mealBuffValue = data.mealBuffValue ?? gameState.mealBuffValue;
         gameState.totalGameTime = data.totalGameTime ?? gameState.totalGameTime;
+
+        // SETTINGS
+        gameState.showMeldAll = data.showMeldAll ?? true;
+        const meldCheckbox = document.getElementById('show-meld-all-checkbox');
+        if (meldCheckbox) {
+            meldCheckbox.checked = gameState.showMeldAll;
+            updateMeldAllButtonVisibility();
+        }        
+        gameState.dayLengthMinutes = data.dayLengthMinutes ?? gameState.dayLengthMinutes;
+        const slider = document.getElementById('day-length-slider');
+        if (slider) {
+            slider.value = gameState.dayLengthMinutes;
+            document.getElementById('day-length-label').innerText = `${gameState.dayLengthMinutes} Minute${gameState.dayLengthMinutes > 1 ? 's' : ''}`;
+        }
 
         // Simulate elapsed time if it was daytime when last saved/blurred
         if (!gameState.isNight && data.timestamp) {
@@ -1280,18 +1525,15 @@ function loadGame() {
 
     renderInventory();
     renderTerrainArtifacts();
-
-    const slider = document.getElementById('day-length-slider');
-    if (slider) {
-        slider.value = gameState.dayLengthMinutes;
-        document.getElementById('day-length-label').innerText = `${gameState.dayLengthMinutes} Minute${gameState.dayLengthMinutes > 1 ? 's' : ''}`;
-    }
 }
 
 // --- ATTACH FUNCTIONS TO WINDOW FOR HTML ONCLICK HANDLERS ---
 window.switchTownTab = switchTownTab;
 window.buyShopItem = buyShopItem;
 window.sellItem = sellItem;
+window.sellAllMinusOne = sellAllMinusOne;
+window.toggleBuyBackView = toggleBuyBackView;
+window.buyBackItem = buyBackItem;
 window.craftCombine = craftCombine;
 window.eatMeal = eatMeal;
 window.confirmRest = confirmRest;
