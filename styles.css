@@ -116,6 +116,10 @@ body {
 /* --- MOBILE & RESPONSIVE OVERRIDES --- */
 @media (max-width: 420px) {
     .ascii-art {
+        /* decrease font size to allow for more characters
+            - 5px = 130 char
+            - 3px = 200 char
+        */
         font-size: 5px !important;
         letter-spacing: 0.02em !important;
     }
