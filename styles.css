@@ -10,7 +10,6 @@ body {
     width: 100vw;
 }
 
-/* Monospace Grid Styling for ASCII Art */
 .ascii-art {
     font-family: 'Fira Code', monospace;
     line-height: 0.9em;
@@ -18,8 +17,24 @@ body {
     white-space: pre;
     text-align: left;
     font-size: clamp(5px, 2vw, 12px) !important;
-    max-width: 100%;
+    max-width: max-content;
+    margin-left: auto;
+    margin-right: auto;
     overflow: hidden;
+}
+
+.wave-line {
+    display: inline-block;
+    animation: layerWave ease-in-out infinite;
+}
+
+@keyframes layerWave {
+    0%, 100% {
+        transform: translateX(calc(-1 * var(--wave-distance, 5px)));
+    }
+    50% {
+        transform: translateX(var(--wave-distance, 5px));
+    }
 }
 
 /* Custom Scrollbar */

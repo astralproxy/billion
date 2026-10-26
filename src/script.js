@@ -49,8 +49,9 @@ const gameState = {
     baseClickPower: 1,
     bonusClickPower: 0,
     passiveDPS: 0,
-    gold: 50,
+    gold: 0,
     layer: 1,
+    monsterShouldAnimate: false,
     totalHits: 0,
     inventory: [],          // Items in bag
     groundItems: [],        // Scattered '*' artifact drops on terrain 
@@ -1139,6 +1140,12 @@ function updateLayerAndNarrative() {
 
     if (newLayer !== gameState.layer) {
         gameState.layer = newLayer;
+
+        if (newLayer == 5)
+        {
+            gameState.monsterShouldAnimate = true;
+        }
+
         renderMonster();
         addLogEntry(`STRUCTURAL BREAKDOWN! ${MONSTER_LAYERS[newLayer - 1].name}`);
     }
@@ -1152,8 +1159,28 @@ function updateLayerAndNarrative() {
 function renderMonster() {
     const monsterEl = document.getElementById('monster-ascii');
     const layerObj = MONSTER_LAYERS[gameState.layer - 1];
-    monsterEl.innerText = layerObj.ascii;
     document.getElementById('layer-display').innerText = layerObj.name;
+
+    // Preserve leading whitespace/newlines, only trim trailing space/newlines
+    const rawAscii = layerObj.ascii.trimEnd();
+
+    if (gameState.monsterShouldAnimate) {
+        // Get each line separately to shift it
+        const lines = rawAscii.split('\n');
+
+        // --- TUNABLE WAVE MOTION CONSTANTS ---
+        const WAVE_DURATION_SECONDS = 5.0; 
+        const WAVE_STAGGER_DELAY = 0.08;   
+        const WAVE_AMPLITUDE_PX = 2;
+
+        monsterEl.innerHTML = lines.map((line, index) => {
+            const delay = (index * WAVE_STAGGER_DELAY).toFixed(2);
+            return `<span class="wave-line" style="animation-duration: ${WAVE_DURATION_SECONDS}s; animation-delay: -${delay}s; --wave-distance: ${WAVE_AMPLITUDE_PX}px;">${line}</span>`;
+        }).join('\n');
+    } else {
+        // Render static text without wave spans
+        monsterEl.innerText = rawAscii;
+    }
 }
 
 function updateGoldUI() {
@@ -1435,6 +1462,7 @@ function saveGame() {
         timeRemaining: gameState.timeRemaining,
         mass: gameState.mass,
         layer: gameState.layer,
+        monsterShouldAnimate: gameState.monsterShouldAnimate,
         gold: gameState.gold,
         inventory: gameState.inventory,
         groundItems: gameState.groundItems, // <--- Persist ground items
@@ -1458,6 +1486,7 @@ function loadGame() {
         gameState.timeRemaining = data.timeRemaining ?? gameState.timeRemaining;
         gameState.mass = data.mass ?? gameState.mass;
         gameState.layer = data.layer ?? gameState.layer;
+        gameState.monsterShouldAnimate = data.monsterShouldAnimate ?? gameState.monsterShouldAnimate;
         gameState.gold = data.gold ?? gameState.gold;
         gameState.inventory = (data.inventory || []).map(item => ({
             ...item,
