@@ -58,17 +58,15 @@
         <!-- COMBAT SCREEN (ACTIVE DURING DAY) -->
         <div id="combat-screen" class="flex-col shrink-0 gap-2 min-h-0">
             <!-- MONSTER ARENA -->
-            <section id="arena" class="relative h-full flex flex-col justify-start items-center bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">    
-                <!-- Monster Canvas Container -->
-                <div id="monster-container" class="relative flex flex-col items-center justify-start w-full h-auto transition-all duration-300" style="margin-top: 6px;">    
+            <section id="arena" class="relative h-full flex flex-col bg-slate-900/40 border border-slate-800/80 rounded-xl overflow-hidden cursor-pointer active:bg-slate-900/60 transition-colors p-2 min-h-[200px]">    
+                <!-- Monster Canvas Container (Fills space from top of arena down to ground terrain) -->
+                <div id="monster-container" class="absolute inset-x-0 top-0 flex flex-col justify-end items-center pointer-events-none p-2 z-20">    
                     <pre id="monster-ascii" class="ascii-art text-center text-[7px] xs:text-[9px] sm:text-xs md:text-sm font-bold text-slate-500 leading-none transition-all duration-300"></pre>
-                    <!-- ASCII populated by JS -->
-                    </pre>
                 </div>
 
                 <!-- SCATTERED GROUND AREA (BELOW MONSTER) -->
                 <!-- GROUND TERRAIN -->
-                <div id="ground-terrain" class="absolute inset-x-0 h-[100px] pointer-events-auto z-30">
+                <div id="ground-terrain" class="absolute inset-x-0 bottom-0 h-[100px] pointer-events-auto z-30">
                     <!-- Shiny * artifacts land here -->
                 </div>
 

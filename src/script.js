@@ -363,7 +363,7 @@ function triggerNightPhase() {
             sleepOverlay.style.opacity = '0';
             sleepOverlay.classList.add('pointer-events-none');
         }, 1000);
-    }, 2000); // 1-second pause matching your request
+    }, 1500); // pause matching your request
 }
 
 //#region --- TOWN SYSTEM TABS ---
@@ -866,7 +866,7 @@ function confirmRest() {
             sleepOverlay.style.opacity = '0';
             sleepOverlay.classList.add('pointer-events-none');
         }, 1000);
-    }, 2000);
+    }, 1500);
 
     saveGame();
 }
@@ -1058,16 +1058,25 @@ function animateEjectionTrajectory(groundItem) {
 function positionGroundTerrain() {
     const playerContainer = document.getElementById('player-container');
     const terrain = document.getElementById('ground-terrain');
+    const monsterContainer = document.getElementById('monster-container');
     if (!playerContainer || !terrain) return;
 
-    // Get player container height + a small padding (e.g., 6px)
+    // Get player container height + a small padding (e.g., 20px)
     const playerHeight = playerContainer.offsetHeight;
     const padding = 20;
     
-    // Anchor the bottom of the ground area right above the player
-    terrain.style.bottom = `${playerHeight + padding}px`;
+    const groundBottom = playerHeight + padding;
+    
+    // Anchor the bottom of the ground area right above the player (unchanged)
+    terrain.style.bottom = `${groundBottom}px`;
     terrain.style.height = `${GROUND_TERRAIN_HEIGHT}px`; // Enforce px height
     terrain.style.top = 'auto'; // Clear top styling
+
+    // Position monster-container's bottom edge right at the top of ground-terrain
+    if (monsterContainer) {
+        monsterContainer.style.bottom = `${groundBottom + GROUND_TERRAIN_HEIGHT}px`;
+        monsterContainer.style.top = '0px';
+    }
 }
 
 function addToGroundTerrain(item, leftPct, bottomPx) {
