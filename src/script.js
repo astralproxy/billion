@@ -24,6 +24,7 @@ const LAYOUT_CONFIG = {
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
 const MASS_MAX = 1000000000;    // total monster mass
 const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
+const GROUND_TERRAIN_HEIGHT = 70; // Fixed height for ground drop area in pixels
 const DROP_RATE = 8;            // percent chance for a drop on click, less for passive DPS
 const MAX_DROPS_ON_GROUND = 10; // Stop drops here until some are picked up
 const SHOP_PRICE_MOD = 1.5;
@@ -127,6 +128,11 @@ window.onload = async () => {
     }
 
     loadGame();
+
+    // Ensure ground terrain positioning initializes on fresh load / reset
+    positionGroundTerrain();
+    window.addEventListener('resize', positionGroundTerrain);
+
 
     renderMonster();
     recalculateStats(); 
@@ -976,19 +982,32 @@ function spawnLootDrop() {
     animateEjectionTrajectory(uniqueGroundItem);
 }
 
+/**
+ * Animates the ejection trajectory of a dropped artifact from the monster arena.
+ * Dynamically creates a temporary DOM element (*) and appends it to the HTML drop layer (#drop-layer),
+ * updating its inline CSS top/left style properties across requestAnimationFrame frames to create a smooth parabolic arc.
+ * Once the animation completes, the temporary DOM element is removed from the HTML, and the settled artifact 
+ * is appended to the ground terrain container (#ground-terrain) in index.html.
+ */
 function animateEjectionTrajectory(groundItem) {
     const dropLayer = document.getElementById('drop-layer');
+    const terrainEl = document.getElementById('ground-terrain');
     const dropEl = document.createElement('div');
     dropEl.className = 'absolute text-amber-300 font-bold text-xl cursor-pointer select-none';
     dropEl.innerText = '*';
 
-    const arenaRect = dropLayer.getBoundingClientRect();
-    const startX = arenaRect.width * (0.35 + Math.random() * 0.3);
-    const startY = arenaRect.height * (0.3 + Math.random() * 0.2);
+    const dropLayerRect = dropLayer.getBoundingClientRect();
+    const terrainRect = terrainEl.getBoundingClientRect();
+
+    const startX = dropLayerRect.width * (0.35 + Math.random() * 0.3);
+    const startY = dropLayerRect.height * (0.3 + Math.random() * 0.2);
 
     const scatterLeftPct = 10 + Math.random() * 80;
-    const endX = arenaRect.width * (scatterLeftPct / 100);
-    const endY = arenaRect.height - 40; // Landing near bottom
+    const endX = dropLayerRect.width * (scatterLeftPct / 100);
+
+    // Calculate endY relative to dropLayer so it lands inside #ground-terrain
+    const scatterOffsetY = Math.random() * (terrainRect.height - 10);
+    const endY = (terrainRect.top - dropLayerRect.top) + scatterOffsetY;
 
     dropEl.style.left = `${startX}px`;
     dropEl.style.top = `${startY}px`;
@@ -996,20 +1015,15 @@ function animateEjectionTrajectory(groundItem) {
 
     const duration = 650;
     const startTime = performance.now();
-    // Peak height offset for the arc (negative goes upwards)
     const peakHeight = -80 - Math.random() * 50; 
 
     function frame(now) {
         const elapsed = now - startTime;
         const progress = Math.min(1, elapsed / duration);
 
-        // Ease out quad for smooth deceleration
         const easeProgress = 1 - (1 - progress) * (1 - progress);
 
-        // Linear interpolation for X, Parabolic arc for Y
         const currentX = startX + (endX - startX) * easeProgress;
-        
-        // Quadratic bezier curve formula for Y (creates the arc peak)
         const currentY = startY + (endY - startY) * easeProgress + peakHeight * Math.sin(progress * Math.PI);
 
         dropEl.style.left = `${currentX}px`;
@@ -1022,9 +1036,7 @@ function animateEjectionTrajectory(groundItem) {
                 dropLayer.removeChild(dropEl);
             }
 
-            const scatterBottom = 10 + Math.random() * 35;
-
-            // --- AUTO-LOOT LOGIC ---
+            // For terrain flow, store scatterOffsetY as pixels from the top of terrain
             if (gameState.autoLoot) {
                 addItemToInventory(groundItem);
                 const msgs = PARASITIC_MESSAGES[gameState.assimilationStage];
@@ -1035,12 +1047,27 @@ function animateEjectionTrajectory(groundItem) {
                 renderInventory();
                 saveGame();
             } else {
-                addToGroundTerrain(groundItem, scatterLeftPct, scatterBottom);
+                addToGroundTerrain(groundItem, scatterLeftPct, scatterOffsetY);
             }
         }
     }
 
     requestAnimationFrame(frame);
+}
+
+function positionGroundTerrain() {
+    const playerContainer = document.getElementById('player-container');
+    const terrain = document.getElementById('ground-terrain');
+    if (!playerContainer || !terrain) return;
+
+    // Get player container height + a small padding (e.g., 6px)
+    const playerHeight = playerContainer.offsetHeight;
+    const padding = 20;
+    
+    // Anchor the bottom of the ground area right above the player
+    terrain.style.bottom = `${playerHeight + padding}px`;
+    terrain.style.height = `${GROUND_TERRAIN_HEIGHT}px`; // Enforce px height
+    terrain.style.top = 'auto'; // Clear top styling
 }
 
 function addToGroundTerrain(item, leftPct, bottomPx) {
@@ -1052,16 +1079,21 @@ function addToGroundTerrain(item, leftPct, bottomPx) {
 
 function renderTerrainArtifacts() {
     const terrain = document.getElementById('ground-terrain');
+    if (!terrain) return;
     terrain.innerHTML = '';
+
+    if (!Array.isArray(gameState.groundItems)) {
+        gameState.groundItems = [];
+        return;
+    }
 
     gameState.groundItems.forEach(item => {
         const starDiv = document.createElement('div');
         starDiv.id = item.uniqueId;
-        // Removed hover:scale-150 and transition-transform, handled by styles.css
         starDiv.className = 'absolute text-amber-300 font-bold text-lg star-artifact p-1';
         starDiv.innerText = '*';
         starDiv.style.left = `${item.left}%`;
-        starDiv.style.bottom = `${item.bottom}px`;
+        starDiv.style.top = `${item.bottom}px`; // using scatterOffsetY as top offset inside terrain
 
         starDiv.onclick = (e) => {
             e.stopPropagation();
@@ -1071,7 +1103,6 @@ function renderTerrainArtifacts() {
         terrain.appendChild(starDiv);
     });
 
-    // Show indicator when max items are on the ground
     const maxStar = document.getElementById('max-capacity-star');
     if (maxStar) {
         maxStar.classList.toggle('hidden', gameState.groundItems.length < MAX_DROPS_ON_GROUND);
@@ -1155,6 +1186,7 @@ function updateLayerAndNarrative() {
         }
 
         renderMonster();
+        positionGroundTerrain(); // Re-align ground container when monster changes layer
         addLogEntry(`STRUCTURAL BREAKDOWN! ${MONSTER_LAYERS[newLayer - 1].name}`);
     }
 
@@ -1487,7 +1519,6 @@ function saveGame() {
 function loadGame() {
     const saved = localStorage.getItem('billion_game_save');
     if (!saved) return;
-
     try {
         const data = JSON.parse(saved);
         gameState.dayNumber = data.dayNumber ?? gameState.dayNumber;

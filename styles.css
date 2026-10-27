@@ -120,7 +120,7 @@ body {
             - 5px = 130 char
             - 3px = 200 char
         */
-        font-size: 5px !important;
+        font-size: 4.5px !important;
         letter-spacing: 0.02em !important;
     }
 }
