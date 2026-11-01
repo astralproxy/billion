@@ -24,9 +24,14 @@ const LAYOUT_CONFIG = {
 // DAY_LENGTH is dynamically calculated from gameState.dayLengthMinutes * 60
 const MASS_MAX = 1000000000;    // total monster mass
 const MEAL_BUFF_DURATION = 60;  // 1 game hour, in seconds
+
+const PLAYER_TO_GROUND_PADDING = 24;
 const GROUND_TERRAIN_HEIGHT = 70; // Fixed height for ground drop area in pixels
+
 const DROP_RATE = 8;            // percent chance for a drop on click, less for passive DPS
-const MAX_DROPS_ON_GROUND = 10; // Stop drops here until some are picked up
+const MAX_DROPS_ON_GROUND = 50; // Stop drops here until some are picked up
+const ARTIFACT_SCALE = 1.5; // Adjust size of star artifacts on the ground
+
 const SHOP_PRICE_MOD = 1.5;
 
 const LAYER_THRESHOLDS = [
@@ -993,7 +998,13 @@ function animateEjectionTrajectory(groundItem) {
     const dropLayer = document.getElementById('drop-layer');
     const terrainEl = document.getElementById('ground-terrain');
     const dropEl = document.createElement('div');
-    dropEl.className = 'absolute text-amber-300 font-bold text-xl cursor-pointer select-none';
+
+    // DEFAULTING drop color to slate/grey. Use this code to set by rarity.
+    // Get the color class based on item.rarity (fallback to slate-300 if undefined)
+    //const colorClass = getRarityColorClass(item.rarity);
+    //dropEl.className = `absolute font-bold star-artifact p-1 ${colorClass}`;
+
+    dropEl.className = 'absolute text-slate-300 font-bold text-xl cursor-pointer select-none';
     dropEl.innerText = '*';
 
     const dropLayerRect = dropLayer.getBoundingClientRect();
@@ -1061,11 +1072,8 @@ function positionGroundTerrain() {
     const monsterContainer = document.getElementById('monster-container');
     if (!playerContainer || !terrain) return;
 
-    // Get player container height + a small padding (e.g., 20px)
-    const playerHeight = playerContainer.offsetHeight;
-    const padding = 20;
-    
-    const groundBottom = playerHeight + padding;
+    const playerHeight = playerContainer.offsetHeight;    
+    const groundBottom = playerHeight + PLAYER_TO_GROUND_PADDING;
     
     // Anchor the bottom of the ground area right above the player (unchanged)
     terrain.style.bottom = `${groundBottom}px`;
@@ -1099,10 +1107,15 @@ function renderTerrainArtifacts() {
     gameState.groundItems.forEach(item => {
         const starDiv = document.createElement('div');
         starDiv.id = item.uniqueId;
-        starDiv.className = 'absolute text-amber-300 font-bold text-lg star-artifact p-1';
+
+        // Get the color class based on item.rarity (fallback to slate-300 if undefined)
+        const colorClass = getRarityColorClass(item.rarity);
+
+        starDiv.className = `absolute font-bold star-artifact p-1 ${colorClass}`;
         starDiv.innerText = '*';
         starDiv.style.left = `${item.left}%`;
         starDiv.style.top = `${item.bottom}px`; // using scatterOffsetY as top offset inside terrain
+        starDiv.style.fontSize = `${16 * ARTIFACT_SCALE}px`;
 
         starDiv.onclick = (e) => {
             e.stopPropagation();
@@ -1205,6 +1218,18 @@ function updateLayerAndNarrative() {
 }
 
 // --- RENDERING FUNCTIONS ---
+// Helper map or switch statement for rarity colors
+function getRarityColorClass(rarity) {
+    switch (rarity) {
+        case 'common': return 'text-slate-300';
+        case 'uncommon': return 'text-emerald-400';
+        case 'rare': return 'text-sky-400';
+        case 'epic': return 'text-purple-400';
+        case 'legendary': return 'text-amber-400';
+        default: return 'text-slate-300';
+    }
+}
+
 function renderMonster() {
     const monsterEl = document.getElementById('monster-ascii');
     const layerObj = MONSTER_LAYERS[gameState.layer - 1];

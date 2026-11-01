@@ -62,8 +62,8 @@ body {
 
 /* Settled Ground Artifact Styling & Hover */
 .star-artifact {
-    animation: star-twinkle 1.2s infinite ease-in-out;
-    transition: scale 0.2s ease;
+    animation: star-twinkle 1.5s infinite ease-in-out;
+    transition: scale 0.3s ease;
     cursor: pointer;
 }
 
