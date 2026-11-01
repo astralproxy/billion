@@ -1,0 +1,127 @@
+:root {
+    --bg-color: #050508;
+    --monster-color: #64748b;
+}
+
+body {
+    touch-action: manipulation;
+    overflow: hidden;
+    height: 100dvh;
+    width: 100vw;
+}
+
+.ascii-art {
+    font-family: 'Fira Code', monospace;
+    line-height: 0.9em;
+    letter-spacing: 0.05em;
+    white-space: pre;
+    text-align: left;
+    font-size: clamp(5px, 2vw, 12px) !important;
+    max-width: max-content;
+    margin-top: auto; /* push to bottom of container */
+    margin-left: auto;
+    margin-right: auto;
+    overflow: hidden;
+}
+
+.wave-line {
+    display: inline-block;
+    animation: layerWave ease-in-out infinite;
+}
+
+@keyframes layerWave {
+    0%, 100% {
+        transform: translateX(calc(-1 * var(--wave-distance, 5px)));
+    }
+    50% {
+        transform: translateX(var(--wave-distance, 5px));
+    }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+    width: 4px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 2px;
+}
+
+/* Falling Item Animation Structure */
+.ejecting-item {
+    position: absolute;
+    z-index: 50;
+    pointer-events: auto;
+    transform: translate(-50%, -50%);
+    transition: left 0.6s cubic-bezier(0.25, 1, 0.5, 1), top 0.6s cubic-bezier(0.5, 0, 0.75, 0.75);
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
+}
+
+/* Settled Ground Artifact Styling & Hover */
+.star-artifact {
+    animation: star-twinkle 1.5s infinite ease-in-out;
+    transition: scale 0.3s ease;
+    cursor: pointer;
+}
+
+.star-artifact:hover {
+    scale: 1.4;
+}
+
+/* Twinkle glow for artifact '*' drops using independent scale property */
+@keyframes star-twinkle {
+    0%, 100% { 
+        opacity: 0.4; 
+        scale: 0.9; 
+        filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.5)); 
+    }
+    50% { 
+        opacity: 1; 
+        scale: 1.25; 
+        filter: drop-shadow(0 0 10px rgba(251, 191, 36, 1)); 
+    }
+}
+
+/* Combat Hit & Damage Animations */
+@keyframes monster-hit {
+    0% { transform: scale(1); filter: brightness(1); }
+    40% { transform: scale(0.97); filter: brightness(1.7) drop-shadow(0 0 12px rgba(239, 68, 68, 0.8)); }
+    100% { transform: scale(1); filter: brightness(1); }
+}
+.hit-anim {
+    animation: monster-hit 0.12s ease-out;
+}
+
+@keyframes floating-damage {
+    0% { opacity: 1; transform: translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateY(-40px) scale(1.15); }
+}
+.float-dmg {
+    position: absolute;
+    pointer-events: none;
+    animation: floating-damage 0.75s ease-out forwards;
+    font-weight: 350;
+    color: #fbbf24;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.8);
+    z-index: 60;
+}
+
+/* Fade-to-black Transition overlay */
+.fade-overlay {
+    transition: opacity 1s ease-in-out;
+}
+
+/* --- MOBILE & RESPONSIVE OVERRIDES --- */
+@media (max-width: 420px) {
+    .ascii-art {
+        /* decrease font size to allow for more characters
+            - 5px = 130 char
+            - 3px = 200 char
+        */
+        font-size: 4.5px !important;
+        letter-spacing: 0.02em !important;
+    }
+}
